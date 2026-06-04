@@ -32,9 +32,15 @@ interface LocalStore {
   profile: AgentProfile | null;
   clients: Client[];
   documents: DocumentRecord[];
+  sms_sessions: Record<string, SmsTurn[]>;
 }
 
-const EMPTY: LocalStore = { profile: null, clients: [], documents: [] };
+const EMPTY: LocalStore = {
+  profile: null,
+  clients: [],
+  documents: [],
+  sms_sessions: {},
+};
 
 async function readLocal(): Promise<LocalStore> {
   try {
@@ -178,6 +184,42 @@ export async function createDocument(input: {
   store.documents.unshift(doc);
   await writeLocal(store);
   return doc;
+}
+
+// ---------------------------------------------------------------------------
+// SMS sessions (per-phone conversation memory for Twilio)
+// ---------------------------------------------------------------------------
+
+export interface SmsTurn {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export async function getSmsSession(phone: string): Promise<SmsTurn[]> {
+  if (usingSupabase) {
+    const { data } = await sb()
+      .from("sms_sessions")
+      .select("transcript")
+      .eq("phone", phone)
+      .maybeSingle();
+    return ((data?.transcript as SmsTurn[]) ?? []) as SmsTurn[];
+  }
+  return (await readLocal()).sms_sessions[phone] ?? [];
+}
+
+export async function saveSmsSession(
+  phone: string,
+  transcript: SmsTurn[],
+): Promise<void> {
+  if (usingSupabase) {
+    await sb()
+      .from("sms_sessions")
+      .upsert({ phone, transcript, updated_at: nowIso() });
+    return;
+  }
+  const store = await readLocal();
+  store.sms_sessions[phone] = transcript;
+  await writeLocal(store);
 }
 
 export async function updateDocument(
