@@ -1,4 +1,3 @@
-import type Anthropic from "@anthropic-ai/sdk";
 import {
   createClient_,
   createDocument,
@@ -13,23 +12,30 @@ import type { DocType } from "@/lib/types";
 
 const DOC_TYPES: DocType[] = ["buyer_rep", "purchase", "dual_agency"];
 
-export const toolDefs: Anthropic.Tool[] = [
+/** Provider-neutral tool spec. `parameters` is a JSON Schema. */
+export interface ToolSpec {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+}
+
+export const toolSpecs: ToolSpec[] = [
   {
     name: "get_agent_profile",
     description:
       "Get the agent's own profile (broker/agency name, license, address, email, phone). These auto-fill the broker side of every document, so you never need to ask the user for them.",
-    input_schema: { type: "object", properties: {} },
+    parameters: { type: "object", properties: {} },
   },
   {
     name: "list_clients",
     description: "List the agent's saved clients.",
-    input_schema: { type: "object", properties: {} },
+    parameters: { type: "object", properties: {} },
   },
   {
     name: "create_client",
     description:
       "Create a new client (a buyer or seller the agent is working with).",
-    input_schema: {
+    parameters: {
       type: "object",
       properties: {
         full_name: { type: "string", description: "Primary client name(s)." },
@@ -46,7 +52,7 @@ export const toolDefs: Anthropic.Tool[] = [
     name: "create_document",
     description:
       "Start a new document of the given type. Returns the document id, the fields you need to collect (with labels and which are required), and which required fields are still missing. Optionally link a client.",
-    input_schema: {
+    parameters: {
       type: "object",
       properties: {
         type: {
@@ -65,7 +71,7 @@ export const toolDefs: Anthropic.Tool[] = [
     name: "set_document_fields",
     description:
       "Set or update one or more field values on a document. Keys must be valid field keys for that document type (call create_document or get_document to see them). Returns the remaining required fields still missing.",
-    input_schema: {
+    parameters: {
       type: "object",
       properties: {
         document_id: { type: "string" },
@@ -82,7 +88,7 @@ export const toolDefs: Anthropic.Tool[] = [
     name: "get_document",
     description:
       "Get a document's current values, its full field schema, and which required fields are still missing.",
-    input_schema: {
+    parameters: {
       type: "object",
       properties: { document_id: { type: "string" } },
       required: ["document_id"],
@@ -92,7 +98,7 @@ export const toolDefs: Anthropic.Tool[] = [
     name: "finalize_document",
     description:
       "Mark a document complete and file it to the dashboard. Only succeeds when all required fields are present. The agent can then download the filled PDF.",
-    input_schema: {
+    parameters: {
       type: "object",
       properties: { document_id: { type: "string" } },
       required: ["document_id"],

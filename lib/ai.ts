@@ -1,22 +1,34 @@
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import { templateList, userFields } from "@/lib/templates";
+import { toolSpecs } from "@/lib/tools";
 import type { AgentProfile } from "@/lib/types";
 
-export const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
+export const MODEL = process.env.OPENAI_MODEL || "gpt-4o";
 
-let _client: Anthropic | null = null;
-export function anthropic(): Anthropic {
+let _client: OpenAI | null = null;
+export function openai(): OpenAI {
   if (!_client) {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not set");
-    _client = new Anthropic({ apiKey });
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) throw new Error("OPENAI_API_KEY is not set");
+    _client = new OpenAI({ apiKey });
   }
   return _client;
 }
 
-export function hasAnthropicKey(): boolean {
-  return Boolean(process.env.ANTHROPIC_API_KEY);
+export function hasAiKey(): boolean {
+  return Boolean(process.env.OPENAI_API_KEY);
 }
+
+/** Tool specs wrapped in OpenAI's function-calling format. */
+export const openaiTools: OpenAI.Chat.Completions.ChatCompletionTool[] =
+  toolSpecs.map((t) => ({
+    type: "function",
+    function: {
+      name: t.name,
+      description: t.description,
+      parameters: t.parameters,
+    },
+  }));
 
 function docCatalog(): string {
   return templateList
@@ -29,7 +41,10 @@ function docCatalog(): string {
     .join("\n");
 }
 
-export function buildSystemPrompt(profile: AgentProfile | null, todayIso: string): string {
+export function buildSystemPrompt(
+  profile: AgentProfile | null,
+  todayIso: string,
+): string {
   const profileLine = profile
     ? `You are assisting ${profile.agent_name || "the agent"} of ${profile.broker_agency_name || "their brokerage"}. Their broker/agency details auto-fill the broker side of every form, so never ask for them.`
     : `The agent has not filled in their profile yet. If broker/agency details are needed, suggest they complete Settings.`;

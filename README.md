@@ -12,16 +12,16 @@ assistant that fills out and files official Connecticut forms. Built so the same
   1. Exclusive Right to Represent Buyer Agreement
   2. Purchase Agreement (SmartMLS)
   3. Dual Agency Consent Agreement
-- **AI assistant** — a Claude tool-use loop that can create clients, create/fill
-  documents conversationally, and file them. Exposed as a web chat now; the same
-  tool layer is reused by voice/SMS in Phase 2.
+- **AI assistant** — an OpenAI (GPT-4o) function-calling loop that can create
+  clients, create/fill documents conversationally, and file them. Exposed as a web
+  chat now; the same tool layer is reused by voice/SMS in Phase 2.
 - **Settings** — your agent profile auto-fills the broker/agency side of every form.
 
 ## Tech stack
 
 - Next.js 15 (App Router) + React 19 + TypeScript
 - [pdf-lib](https://pdf-lib.js.org) for PDF filling (Node runtime; Vercel-friendly)
-- [@anthropic-ai/sdk](https://github.com/anthropics/anthropic-sdk-typescript) for the assistant
+- [openai](https://github.com/openai/openai-node) (GPT-4o function calling) for the assistant
 - Supabase for persistence (with a local-file fallback for dev)
 
 ## Getting started
@@ -43,7 +43,7 @@ app/
   documents/[id]/               Document editor (form + PDF download)
   assistant/                    AI chat UI
   settings/                     Agent profile
-  api/chat/                     Claude tool-use loop (the AI brain)
+  api/chat/                     OpenAI function-calling loop (the AI brain)
   api/documents/[id]/pdf/       Generates the filled PDF on demand
   actions.ts                    Server actions (profile/client/document writes)
 lib/
@@ -51,7 +51,7 @@ lib/
   pdf/fill.ts                   pdf-lib overlay engine
   tools/                        AI tool definitions + handlers (shared seam)
   db.ts                         Storage (Supabase or local-file fallback)
-  anthropic.ts                  Claude client + system prompt
+  ai.ts                         OpenAI client + system prompt + tool format
 templates/*.pdf                 The three source forms
 supabase/migrations/            DB schema (apply when the project is provisioned)
 ```
