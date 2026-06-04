@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Dougbro55 — AI Assistant for Real Estate",
+  title: "Dougbro55 — Real Estate Agent Portal",
   description:
-    "The host portal and AI assistant that helps real estate agents work smarter.",
+    "A personal home base for a real estate agent: clients, documents, and an AI assistant.",
 };
 
 export default function RootLayout({
@@ -12,7 +13,21 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <nav className="nav">
+          <div className="navInner">
+            <Link href="/" className="brand">
+              Dougbro<span className="brandAccent">55</span>
+            </Link>
+            <div className="navlinks">
+              <Link href="/">Dashboard</Link>
+              <Link href="/assistant">Assistant</Link>
+              <Link href="/settings">Settings</Link>
+            </div>
+          </div>
+        </nav>
+        <div className="container">{children}</div>
+      </body>
     </html>
   );
 }
