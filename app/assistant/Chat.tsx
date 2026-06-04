@@ -7,8 +7,8 @@ interface UiMessage {
   text: string;
 }
 
-// Mirrors Anthropic's MessageParam shape closely enough for our API.
-type ApiMessage = { role: "user" | "assistant"; content: unknown };
+// Plain text transcript turns exchanged with /api/chat.
+type ApiMessage = { role: "user" | "assistant"; content: string };
 
 export default function Chat() {
   const [ui, setUi] = useState<UiMessage[]>([]);

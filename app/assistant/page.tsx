@@ -1,11 +1,11 @@
 import Link from "next/link";
-import { hasAnthropicKey } from "@/lib/anthropic";
+import { hasAiKey } from "@/lib/ai";
 import Chat from "./Chat";
 
 export const dynamic = "force-dynamic";
 
 export default function AssistantPage() {
-  const enabled = hasAnthropicKey();
+  const enabled = hasAiKey();
   return (
     <div className="stack">
       <div>
@@ -20,7 +20,7 @@ export default function AssistantPage() {
 
       {!enabled ? (
         <div className="notice">
-          The assistant isn’t connected yet. Add <code>ANTHROPIC_API_KEY</code> to{" "}
+          The assistant isn’t connected yet. Add <code>OPENAI_API_KEY</code> to{" "}
           <code>.env.local</code> and restart to enable it.
         </div>
       ) : (
