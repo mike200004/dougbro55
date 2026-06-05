@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getProfile, listClients, listDocuments } from "@/lib/db";
 import { templateList, getTemplate } from "@/lib/templates";
+import { requireAccount } from "@/lib/auth";
 import { newDocumentAction } from "./actions";
 import AddClient from "./AddClient";
 
@@ -12,10 +13,11 @@ function greeting(name: string | undefined) {
 }
 
 export default async function Dashboard() {
+  const { userId } = await requireAccount();
   const [profile, clients, documents] = await Promise.all([
-    getProfile(),
-    listClients(),
-    listDocuments(),
+    getProfile(userId),
+    listClients(userId),
+    listDocuments(userId),
   ]);
 
   return (

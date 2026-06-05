@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { hasAiKey } from "@/lib/ai";
 import { runConversation } from "@/lib/conversation";
-import { getSmsSession, saveSmsSession, SmsTurn } from "@/lib/db";
+import { getAccountByPhone, getSmsSession, saveSmsSession, SmsTurn } from "@/lib/db";
+import { normalizePhone } from "@/lib/phone";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -70,21 +71,33 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const phone = params.From || "unknown";
+  const phone = normalizePhone(params.From) || params.From || "unknown";
   const text = (params.Body || "").trim();
-  if (!text) return twiml("Hi! Tell me what document you'd like to work on.");
+
+  // Gate: only registered numbers may use the assistant.
+  const accountId = await getAccountByPhone(phone);
+  if (!accountId) {
+    return twiml(
+      "This number isn't registered. Sign up at dougbro55.vercel.app to use the assistant, then text from this phone.",
+    );
+  }
+
+  if (!text) return twiml("Tell me what document you'd like to work on.");
 
   const history = await getSmsSession(phone);
   const transcript: SmsTurn[] = [...history, { role: "user", content: text }];
 
   try {
-    const { reply } = await runConversation(transcript, { systemSuffix: SMS_SUFFIX });
+    const { reply } = await runConversation(transcript, {
+      accountId,
+      systemSuffix: SMS_SUFFIX,
+    });
     const finalReply = reply || "Sorry, I didn't catch that — could you rephrase?";
     const updated: SmsTurn[] = [
       ...transcript,
       { role: "assistant" as const, content: finalReply },
     ].slice(-MAX_TURNS);
-    await saveSmsSession(phone, updated);
+    await saveSmsSession(phone, accountId, updated);
     return twiml(finalReply);
   } catch (err) {
     console.error("SMS error:", err);

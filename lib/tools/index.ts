@@ -122,21 +122,27 @@ function missingLabels(type: DocType, values: Record<string, string>) {
   return keys.map((k) => fields.find((f) => f.key === k)?.label ?? k);
 }
 
+export interface ToolContext {
+  accountId: string;
+}
+
 export async function runTool(
   name: string,
   input: Record<string, unknown>,
+  ctx: ToolContext,
 ): Promise<unknown> {
+  const acc = ctx.accountId;
   switch (name) {
     case "get_agent_profile": {
-      const profile = await getProfile();
+      const profile = await getProfile(acc);
       return profile ?? { note: "No agent profile set yet. Ask the user to fill it in Settings." };
     }
 
     case "list_clients":
-      return await listClients();
+      return await listClients(acc);
 
     case "create_client": {
-      const client = await createClient_({
+      const client = await createClient_(acc, {
         full_name: String(input.full_name),
         secondary_name: (input.secondary_name as string) ?? null,
         email: (input.email as string) ?? null,
@@ -153,10 +159,10 @@ export async function runTool(
       const tpl = getTemplate(type);
       let title = (input.title as string) || "";
       if (!title) {
-        const client = input.client_id ? await getClient(String(input.client_id)) : null;
+        const client = input.client_id ? await getClient(acc, String(input.client_id)) : null;
         title = client ? `${tpl.shortName} — ${client.full_name}` : `${tpl.shortName} (new)`;
       }
-      const doc = await createDocument({
+      const doc = await createDocument(acc, {
         type,
         title,
         client_id: (input.client_id as string) ?? null,
@@ -172,7 +178,7 @@ export async function runTool(
 
     case "set_document_fields": {
       const docId = String(input.document_id);
-      const doc = await getDocument(docId);
+      const doc = await getDocument(acc, docId);
       if (!doc) return { error: `Document ${docId} not found` };
       const tpl = getTemplate(doc.type);
       const valid = new Set(tpl.fields.filter((f) => !f.source).map((f) => f.key));
@@ -183,7 +189,7 @@ export async function runTool(
         if (valid.has(k)) accepted[k] = String(v);
         else rejected.push(k);
       }
-      const updated = await updateDocument(docId, { fields: accepted });
+      const updated = await updateDocument(acc, docId, { fields: accepted });
       return {
         document_id: docId,
         updated_fields: Object.keys(accepted),
@@ -194,7 +200,7 @@ export async function runTool(
 
     case "get_document": {
       const docId = String(input.document_id);
-      const doc = await getDocument(docId);
+      const doc = await getDocument(acc, docId);
       if (!doc) return { error: `Document ${docId} not found` };
       return {
         document_id: doc.id,
@@ -209,7 +215,7 @@ export async function runTool(
 
     case "finalize_document": {
       const docId = String(input.document_id);
-      const doc = await getDocument(docId);
+      const doc = await getDocument(acc, docId);
       if (!doc) return { error: `Document ${docId} not found` };
       const missing = missingLabels(doc.type, doc.fields);
       if (missing.length) {
@@ -219,7 +225,7 @@ export async function runTool(
           message: "Cannot finalize: required fields are still missing.",
         };
       }
-      const updated = await updateDocument(docId, { status: "completed" });
+      const updated = await updateDocument(acc, docId, { status: "completed" });
       return {
         ok: true,
         document_id: updated.id,

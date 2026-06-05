@@ -1,21 +1,24 @@
 import Link from "next/link";
-import { getProfile, usingSupabase } from "@/lib/db";
+import { getProfile } from "@/lib/db";
+import { requireAccount } from "@/lib/auth";
 import { saveProfileAction } from "@/app/actions";
+import type { AgentProfile } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-const FIELDS: { key: keyof NonNullable<Awaited<ReturnType<typeof getProfile>>>; label: string }[] = [
+const FIELDS: { key: keyof AgentProfile; label: string; hint?: string }[] = [
   { key: "agent_name", label: "Your name (authorized representative)" },
+  { key: "phone", label: "Mobile phone", hint: "The number you call/text from — how the assistant matches you." },
   { key: "broker_agency_name", label: "Broker / agency name" },
   { key: "license_number", label: "License number" },
   { key: "street", label: "Street address" },
   { key: "city_state_zip", label: "City / State / ZIP" },
   { key: "email", label: "Email" },
-  { key: "phone", label: "Phone" },
 ];
 
 export default async function SettingsPage() {
-  const profile = await getProfile();
+  const { userId } = await requireAccount();
+  const profile = await getProfile(userId);
 
   return (
     <div className="stack">
@@ -28,19 +31,13 @@ export default async function SettingsPage() {
         </p>
       </div>
 
-      {!usingSupabase && (
-        <div className="notice">
-          Running on local storage (Supabase not connected yet). Data is saved to a local
-          file and will persist in dev. Add Supabase env vars to switch to the cloud DB.
-        </div>
-      )}
-
       <form action={saveProfileAction} className="card">
         <div className="formGrid">
           {FIELDS.map((f) => (
             <div className="field" key={f.key}>
               <label className="label">{f.label}</label>
               <input className="input" name={f.key} defaultValue={profile?.[f.key] ?? ""} />
+              {f.hint && <span className="hint">{f.hint}</span>}
             </div>
           ))}
         </div>

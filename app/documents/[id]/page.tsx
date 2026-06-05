@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getDocument, getProfile } from "@/lib/db";
 import { getTemplate, userFields } from "@/lib/templates";
+import { requireAccount } from "@/lib/auth";
 import DocumentEditor from "./DocumentEditor";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +13,11 @@ export default async function DocumentPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [doc, profile] = await Promise.all([getDocument(id), getProfile()]);
+  const { userId } = await requireAccount();
+  const [doc, profile] = await Promise.all([
+    getDocument(userId, id),
+    getProfile(userId),
+  ]);
   if (!doc) notFound();
 
   const tpl = getTemplate(doc.type);
