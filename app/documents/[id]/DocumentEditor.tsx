@@ -1,7 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { saveDocumentFieldsAction, setDocumentStatusAction } from "@/app/actions";
+import {
+  saveDocumentFieldsAction,
+  sendDocumentAction,
+  setDocumentStatusAction,
+} from "@/app/actions";
 
 interface FieldDef {
   key: string;
@@ -98,7 +102,71 @@ export default function DocumentEditor({
         </a>
         <StatusButton docId={docId} complete={complete} canComplete={missing.length === 0} />
       </div>
+
+      <SendByText docId={docId} disabled={missing.length > 0} />
     </form>
+  );
+}
+
+function SendByText({ docId, disabled }: { docId: string; disabled: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [phone, setPhone] = useState("");
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  return (
+    <div style={{ marginTop: 24, borderTop: "1px solid var(--border)", paddingTop: 20 }}>
+      <h2 className="sectionTitle">Send by text</h2>
+      {disabled ? (
+        <p className="muted">Fill the required fields above to enable sending.</p>
+      ) : !open ? (
+        <button type="button" className="btn" onClick={() => setOpen(true)}>
+          Text this document to someone
+        </button>
+      ) : (
+        <div className="card">
+          <div className="formGrid">
+            <div className="field">
+              <label className="label">Recipient name (optional)</label>
+              <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
+            </div>
+            <div className="field">
+              <label className="label">Recipient mobile number</label>
+              <input className="input" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(203) 555-0123" />
+            </div>
+          </div>
+          {msg && <p style={{ color: "var(--ok)", marginBottom: 10 }}>{msg}</p>}
+          {err && <p style={{ color: "var(--danger)", marginBottom: 10 }}>{err}</p>}
+          <div className="btnRow">
+            <button
+              type="button"
+              className="btn btnPrimary"
+              disabled={busy || !phone.trim()}
+              onClick={async () => {
+                setBusy(true);
+                setErr(null);
+                setMsg(null);
+                const res = await sendDocumentAction(docId, phone, name);
+                setBusy(false);
+                if (res.ok) {
+                  setMsg(`Sent a link to ${phone}.`);
+                  setPhone("");
+                } else {
+                  setErr(res.error);
+                }
+              }}
+            >
+              {busy ? "Sending…" : "Send link"}
+            </button>
+            <button type="button" className="btn" onClick={() => setOpen(false)}>
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

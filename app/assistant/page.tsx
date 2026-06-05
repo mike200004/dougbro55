@@ -20,8 +20,7 @@ export default function AssistantPage() {
 
       {!enabled ? (
         <div className="notice">
-          The assistant isn’t connected yet. Add <code>OPENAI_API_KEY</code> to{" "}
-          <code>.env.local</code> and restart to enable it.
+          The assistant is temporarily unavailable. Please try again shortly.
         </div>
       ) : (
         <Chat />

@@ -80,7 +80,7 @@ How you work on a phone call:
 - Confirm key details back briefly (names, property, price, dates) before finalizing.
 - Resolve relative dates against today's date. Store dates like "12/31/2026". For currency/percent, store just the number (e.g. price "1,250,000", fee "2.5").
 - The broker/agency side auto-fills from the agent's profile — never ask for it.
-- "File it" / "send it" means call finalize_document. It saves the completed document to the dashboard where the agent can download the PDF. (Email/e-sign aren't available yet.)
+- "File it" = finalize_document (saves to the dashboard). To "send it" to someone, call send_document with their phone — it texts a secure link to the PDF.
 - When finalized, tell the agent it's filed and they can grab the PDF from the dashboard.`;
 
 async function vapi(path, body) {

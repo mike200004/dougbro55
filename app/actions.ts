@@ -15,8 +15,12 @@ import {
 import { admin } from "@/lib/supabase/admin";
 import { requireAccount, getSessionUser } from "@/lib/auth";
 import { normalizePhone } from "@/lib/phone";
+import { makeShareToken } from "@/lib/share";
+import { sendSms } from "@/lib/twilio";
 import { getTemplate, missingRequired } from "@/lib/templates";
 import type { AgentProfile, DocType } from "@/lib/types";
+
+const SEND_SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://dougbro55.vercel.app";
 
 const SITE_URL =
   process.env.NEXT_PUBLIC_SITE_URL || "https://dougbro55.vercel.app";
@@ -214,6 +218,28 @@ export async function saveDocumentFieldsAction(docId: string, formData: FormData
   });
   revalidatePath(`/documents/${docId}`);
   revalidatePath("/");
+}
+
+export async function sendDocumentAction(
+  docId: string,
+  toPhone: string,
+  recipientName?: string,
+): Promise<ActionResult> {
+  const { accountId } = await requireAccount();
+  const doc = await getDocument(accountId, docId);
+  if (!doc) return { ok: false, error: "Document not found." };
+  const missing = missingRequired(doc.type, doc.fields);
+  if (missing.length) return { ok: false, error: "Fill the required fields before sending." };
+  const to = normalizePhone(toPhone);
+  if (!to) return { ok: false, error: "Enter a valid recipient phone number." };
+
+  const tpl = getTemplate(doc.type);
+  const link = `${SEND_SITE_URL}/api/share/${makeShareToken(docId)}`;
+  const who = recipientName?.trim();
+  const body = `${who ? who + ", " : ""}here is your ${tpl.name}: ${link}`;
+  const sent = await sendSms(to, body);
+  if (!sent.ok) return { ok: false, error: sent.error || "Could not send the text." };
+  return { ok: true };
 }
 
 export async function setDocumentStatusAction(docId: string, complete: boolean) {

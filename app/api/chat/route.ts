@@ -18,10 +18,7 @@ export async function POST(req: NextRequest) {
 
   if (!hasAiKey()) {
     return NextResponse.json(
-      {
-        error:
-          "The AI assistant isn't connected yet. Add OPENAI_API_KEY to .env.local to enable it.",
-      },
+      { error: "The assistant is temporarily unavailable. Please try again shortly." },
       { status: 503 },
     );
   }

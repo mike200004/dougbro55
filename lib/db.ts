@@ -202,6 +202,12 @@ export async function getDocument(
   return (data as DocumentRecord) ?? null;
 }
 
+/** Fetch a document by id without account scoping (for token-authorized share links). */
+export async function getDocumentById(docId: string): Promise<DocumentRecord | null> {
+  const { data } = await admin().from("documents").select("*").eq("id", docId).maybeSingle();
+  return (data as DocumentRecord) ?? null;
+}
+
 export async function createDocument(
   accountId: string,
   input: {

@@ -27,6 +27,7 @@ export interface Client {
 
 export interface DocumentRecord {
   id: string;
+  account_id: string;
   type: DocType;
   client_id: string | null;
   title: string;
