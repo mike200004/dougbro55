@@ -47,6 +47,9 @@ export async function runConversation(
       messages,
       tools: openaiTools,
       tool_choice: "auto",
+      // Force one tool call at a time so the model can't, e.g., create the same
+      // document twice in a single parallel batch.
+      parallel_tool_calls: false,
     });
 
     const msg = completion.choices[0]?.message;
