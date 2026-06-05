@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { hasAiKey } from "@/lib/ai";
 import { runConversation, Turn } from "@/lib/conversation";
+import { getSessionUser } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -10,6 +11,11 @@ interface ChatBody {
 }
 
 export async function POST(req: NextRequest) {
+  const user = await getSessionUser();
+  if (!user) {
+    return NextResponse.json({ error: "Please sign in." }, { status: 401 });
+  }
+
   if (!hasAiKey()) {
     return NextResponse.json(
       {
@@ -30,7 +36,9 @@ export async function POST(req: NextRequest) {
   const transcript: Turn[] = Array.isArray(body.messages) ? body.messages : [];
 
   try {
-    const { reply, toolEvents } = await runConversation(transcript);
+    const { reply, toolEvents } = await runConversation(transcript, {
+      accountId: user.userId,
+    });
     return NextResponse.json({
       reply,
       messages: [...transcript, { role: "assistant", content: reply }],

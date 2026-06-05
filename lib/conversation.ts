@@ -26,9 +26,9 @@ export interface ConversationResult {
  */
 export async function runConversation(
   transcript: Turn[],
-  opts: { maxRounds?: number; systemSuffix?: string } = {},
+  opts: { accountId: string; maxRounds?: number; systemSuffix?: string },
 ): Promise<ConversationResult> {
-  const profile = await getProfile();
+  const profile = await getProfile(opts.accountId);
   let system = buildSystemPrompt(profile, new Date().toISOString().slice(0, 10));
   if (opts.systemSuffix) system += `\n\n${opts.systemSuffix}`;
 
@@ -73,7 +73,7 @@ export async function runConversation(
       }
       let result: unknown;
       try {
-        result = await runTool(tc.function.name, args);
+        result = await runTool(tc.function.name, args, { accountId: opts.accountId });
       } catch (err) {
         result = { error: err instanceof Error ? err.message : String(err) };
       }

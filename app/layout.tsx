@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import "./globals.css";
+import { getSessionUser } from "@/lib/auth";
+import LogoutButton from "./LogoutButton";
 
 export const metadata: Metadata = {
   title: "Dougbro55 — Real Estate Agent Portal",
@@ -8,9 +10,11 @@ export const metadata: Metadata = {
     "A personal home base for a real estate agent: clients, documents, and an AI assistant.",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  const user = await getSessionUser();
+
   return (
     <html lang="en">
       <body>
@@ -20,9 +24,20 @@ export default function RootLayout({
               Dougbro<span className="brandAccent">55</span>
             </Link>
             <div className="navlinks">
-              <Link href="/">Dashboard</Link>
-              <Link href="/assistant">Assistant</Link>
-              <Link href="/settings">Settings</Link>
+              {user ? (
+                <>
+                  <Link href="/">Dashboard</Link>
+                  <Link href="/assistant">Assistant</Link>
+                  <Link href="/settings">Settings</Link>
+                  <span className="muted" style={{ fontSize: 13 }}>{user.email}</span>
+                  <LogoutButton />
+                </>
+              ) : (
+                <>
+                  <Link href="/login">Sign in</Link>
+                  <Link href="/signup">Sign up</Link>
+                </>
+              )}
             </div>
           </div>
         </nav>

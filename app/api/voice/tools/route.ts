@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runTool } from "@/lib/tools";
+import { getAccountByPhone } from "@/lib/db";
+import { normalizePhone } from "@/lib/phone";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -59,6 +61,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({});
   }
 
+  // Gate: identify the caller by their phone number and resolve their account.
+  const call = (message.call ?? {}) as { customer?: { number?: string } };
+  const callerPhone = normalizePhone(call.customer?.number);
+  const accountId = callerPhone ? await getAccountByPhone(callerPhone) : null;
+
   const rawCalls: VapiToolCall[] =
     (message.toolCallList as VapiToolCall[]) ||
     (message.toolCalls as VapiToolCall[]) ||
@@ -68,10 +75,18 @@ export async function POST(req: NextRequest) {
   for (const raw of rawCalls) {
     const { id, name, args } = normalize(raw);
     let result: unknown;
-    try {
-      result = await runTool(name, args);
-    } catch (err) {
-      result = { error: err instanceof Error ? err.message : String(err) };
+    if (!accountId) {
+      result = {
+        error: "caller_not_registered",
+        message:
+          "This caller's number isn't registered. Tell them to sign up at dougbro55.vercel.app, then end the call politely.",
+      };
+    } else {
+      try {
+        result = await runTool(name, args, { accountId });
+      } catch (err) {
+        result = { error: err instanceof Error ? err.message : String(err) };
+      }
     }
     results.push({
       toolCallId: id,
