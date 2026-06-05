@@ -61,10 +61,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({});
   }
 
-  // Gate: identify the caller by their phone number and resolve their account.
+  // Gate: identify the caller by phone and resolve their account + actor.
   const call = (message.call ?? {}) as { customer?: { number?: string } };
   const callerPhone = normalizePhone(call.customer?.number);
-  const accountId = callerPhone ? await getAccountByPhone(callerPhone) : null;
+  const actor = callerPhone ? await getAccountByPhone(callerPhone) : null;
 
   const rawCalls: VapiToolCall[] =
     (message.toolCallList as VapiToolCall[]) ||
@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
   for (const raw of rawCalls) {
     const { id, name, args } = normalize(raw);
     let result: unknown;
-    if (!accountId) {
+    if (!actor) {
       result = {
         error: "caller_not_registered",
         message:
@@ -83,7 +83,10 @@ export async function POST(req: NextRequest) {
       };
     } else {
       try {
-        result = await runTool(name, args, { accountId });
+        result = await runTool(name, args, {
+          accountId: actor.accountId,
+          actorId: actor.memberId,
+        });
       } catch (err) {
         result = { error: err instanceof Error ? err.message : String(err) };
       }

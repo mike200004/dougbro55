@@ -26,10 +26,22 @@ export interface ConversationResult {
  */
 export async function runConversation(
   transcript: Turn[],
-  opts: { accountId: string; maxRounds?: number; systemSuffix?: string },
+  opts: {
+    accountId: string;
+    actorId?: string;
+    actorName?: string;
+    role?: "owner" | "assistant";
+    maxRounds?: number;
+    systemSuffix?: string;
+  },
 ): Promise<ConversationResult> {
   const profile = await getProfile(opts.accountId);
   let system = buildSystemPrompt(profile, new Date().toISOString().slice(0, 10));
+  if (opts.actorName) {
+    system += `\n\nYou are currently helping ${opts.actorName}${
+      opts.role === "assistant" ? " (an assistant acting on the agent's account)" : ""
+    }. You may address them by name.`;
+  }
   if (opts.systemSuffix) system += `\n\n${opts.systemSuffix}`;
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
@@ -76,7 +88,10 @@ export async function runConversation(
       }
       let result: unknown;
       try {
-        result = await runTool(tc.function.name, args, { accountId: opts.accountId });
+        result = await runTool(tc.function.name, args, {
+          accountId: opts.accountId,
+          actorId: opts.actorId,
+        });
       } catch (err) {
         result = { error: err instanceof Error ? err.message : String(err) };
       }

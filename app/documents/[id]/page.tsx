@@ -13,10 +13,10 @@ export default async function DocumentPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const { userId } = await requireAccount();
+  const { accountId } = await requireAccount();
   const [doc, profile] = await Promise.all([
-    getDocument(userId, id),
-    getProfile(userId),
+    getDocument(accountId, id),
+    getProfile(accountId),
   ]);
   if (!doc) notFound();
 
