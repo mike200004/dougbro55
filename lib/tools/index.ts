@@ -124,6 +124,7 @@ function missingLabels(type: DocType, values: Record<string, string>) {
 
 export interface ToolContext {
   accountId: string;
+  actorId?: string; // who is acting (owner or assistant member id)
 }
 
 export async function runTool(
@@ -166,6 +167,7 @@ export async function runTool(
         type,
         title,
         client_id: (input.client_id as string) ?? null,
+        created_by: ctx.actorId ?? null,
       });
       return {
         document_id: doc.id,

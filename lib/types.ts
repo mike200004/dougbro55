@@ -32,6 +32,7 @@ export interface DocumentRecord {
   title: string;
   status: DocStatus;
   fields: Record<string, string>;
+  created_by: string | null;
   created_at: string;
   updated_at: string;
 }

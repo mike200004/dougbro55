@@ -74,9 +74,9 @@ export async function POST(req: NextRequest) {
   const phone = normalizePhone(params.From) || params.From || "unknown";
   const text = (params.Body || "").trim();
 
-  // Gate: only registered numbers may use the assistant.
-  const accountId = await getAccountByPhone(phone);
-  if (!accountId) {
+  // Gate: only registered numbers (owner or assistant) may use the assistant.
+  const actor = await getAccountByPhone(phone);
+  if (!actor) {
     return twiml(
       "This number isn't registered. Sign up at dougbro55.vercel.app to use the assistant, then text from this phone.",
     );
@@ -89,7 +89,10 @@ export async function POST(req: NextRequest) {
 
   try {
     const { reply } = await runConversation(transcript, {
-      accountId,
+      accountId: actor.accountId,
+      actorId: actor.memberId,
+      actorName: actor.name,
+      role: actor.role,
       systemSuffix: SMS_SUFFIX,
     });
     const finalReply = reply || "Sorry, I didn't catch that — could you rephrase?";
@@ -97,7 +100,7 @@ export async function POST(req: NextRequest) {
       ...transcript,
       { role: "assistant" as const, content: finalReply },
     ].slice(-MAX_TURNS);
-    await saveSmsSession(phone, accountId, updated);
+    await saveSmsSession(phone, actor.accountId, updated);
     return twiml(finalReply);
   } catch (err) {
     console.error("SMS error:", err);

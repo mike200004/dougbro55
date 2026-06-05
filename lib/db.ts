@@ -50,15 +50,91 @@ export async function saveProfile(
   return data as AgentProfile;
 }
 
-/** Resolve an account id from a caller's phone (E.164). */
-export async function getAccountByPhone(phone: string): Promise<string | null> {
+// ---------------------------------------------------------------------------
+// Members (owner + assistants)
+// ---------------------------------------------------------------------------
+
+export interface Member {
+  id: string;
+  account_id: string;
+  role: "owner" | "assistant";
+  name: string;
+  phone: string | null;
+  email: string | null;
+  status: "active" | "invited";
+  created_at: string;
+}
+
+export interface ResolvedActor {
+  accountId: string;
+  memberId: string;
+  name: string;
+  role: "owner" | "assistant";
+}
+
+/** Resolve the account + actor for a logged-in user. */
+export async function getMember(userId: string): Promise<ResolvedActor | null> {
+  const { data } = await admin()
+    .from("account_members")
+    .select("account_id, name, role")
+    .eq("id", userId)
+    .maybeSingle();
+  if (!data) return null;
+  return { accountId: data.account_id, memberId: userId, name: data.name, role: data.role };
+}
+
+/** Resolve the account + actor from a caller's phone (E.164) — owner or assistant. */
+export async function getAccountByPhone(phone: string): Promise<ResolvedActor | null> {
   if (!phone) return null;
   const { data } = await admin()
-    .from("profiles")
-    .select("id")
+    .from("account_members")
+    .select("id, account_id, name, role")
     .eq("phone", phone)
     .maybeSingle();
-  return (data?.id as string) ?? null;
+  if (!data) return null;
+  return { accountId: data.account_id, memberId: data.id, name: data.name, role: data.role };
+}
+
+export async function listMembers(accountId: string): Promise<Member[]> {
+  const { data } = await admin()
+    .from("account_members")
+    .select("*")
+    .eq("account_id", accountId)
+    .order("created_at", { ascending: true });
+  return (data as Member[]) ?? [];
+}
+
+export async function insertMember(m: {
+  id: string;
+  account_id: string;
+  role: "owner" | "assistant";
+  name: string;
+  phone: string | null;
+  email: string | null;
+  status: "active" | "invited";
+}): Promise<void> {
+  const { error } = await admin().from("account_members").insert(m);
+  if (error) throw new Error(error.message);
+}
+
+export async function setMemberStatus(memberId: string, status: "active" | "invited"): Promise<void> {
+  await admin().from("account_members").update({ status }).eq("id", memberId);
+}
+
+/** Remove an assistant from an account (owner-scoped; never the owner). */
+export async function removeMember(accountId: string, memberId: string): Promise<void> {
+  await admin()
+    .from("account_members")
+    .delete()
+    .eq("account_id", accountId)
+    .eq("id", memberId)
+    .eq("role", "assistant");
+}
+
+/** Map member id -> display name for an account (for attribution display). */
+export async function memberNames(accountId: string): Promise<Record<string, string>> {
+  const members = await listMembers(accountId);
+  return Object.fromEntries(members.map((m) => [m.id, m.name]));
 }
 
 // ---------------------------------------------------------------------------
@@ -133,6 +209,7 @@ export async function createDocument(
     title: string;
     client_id?: string | null;
     fields?: Record<string, string>;
+    created_by?: string | null;
   },
 ): Promise<DocumentRecord> {
   const { data, error } = await admin()
@@ -144,6 +221,7 @@ export async function createDocument(
       client_id: input.client_id ?? null,
       status: "draft",
       fields: input.fields ?? {},
+      created_by: input.created_by ?? null,
     })
     .select()
     .single();

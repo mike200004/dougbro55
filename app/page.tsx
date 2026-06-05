@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getProfile, listClients, listDocuments } from "@/lib/db";
+import { getProfile, listClients, listDocuments, memberNames } from "@/lib/db";
 import { templateList, getTemplate } from "@/lib/templates";
 import { requireAccount } from "@/lib/auth";
 import { newDocumentAction } from "./actions";
@@ -13,17 +13,19 @@ function greeting(name: string | undefined) {
 }
 
 export default async function Dashboard() {
-  const { userId } = await requireAccount();
-  const [profile, clients, documents] = await Promise.all([
-    getProfile(userId),
-    listClients(userId),
-    listDocuments(userId),
+  const account = await requireAccount();
+  const { accountId } = account;
+  const [profile, clients, documents, names] = await Promise.all([
+    getProfile(accountId),
+    listClients(accountId),
+    listDocuments(accountId),
+    memberNames(accountId),
   ]);
 
   return (
     <div className="stack">
       <header>
-        <h1 className="pageTitle">{greeting(profile?.agent_name)}</h1>
+        <h1 className="pageTitle">{greeting(account.name || profile?.agent_name)}</h1>
         <p className="pageSub">
           Your real estate home base. Start a document below, or talk to your{" "}
           <Link href="/assistant" style={{ color: "var(--brand-soft)" }}>
@@ -71,6 +73,7 @@ export default async function Dashboard() {
                   <div className="rowMain">{doc.title || tpl.name}</div>
                   <div className="rowSub">
                     {tpl.shortName} · updated {new Date(doc.updated_at).toLocaleDateString()}
+                    {doc.created_by && names[doc.created_by] ? ` · by ${names[doc.created_by]}` : ""}
                   </div>
                 </div>
                 <span className={`badge ${doc.status === "completed" ? "badgeOk" : "badgeDraft"}`}>

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { hasAiKey } from "@/lib/ai";
 import { runConversation, Turn } from "@/lib/conversation";
-import { getSessionUser } from "@/lib/auth";
+import { getAccount } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -11,8 +11,8 @@ interface ChatBody {
 }
 
 export async function POST(req: NextRequest) {
-  const user = await getSessionUser();
-  if (!user) {
+  const account = await getAccount();
+  if (!account) {
     return NextResponse.json({ error: "Please sign in." }, { status: 401 });
   }
 
@@ -37,7 +37,10 @@ export async function POST(req: NextRequest) {
 
   try {
     const { reply, toolEvents } = await runConversation(transcript, {
-      accountId: user.userId,
+      accountId: account.accountId,
+      actorId: account.userId,
+      actorName: account.name,
+      role: account.role,
     });
     return NextResponse.json({
       reply,
