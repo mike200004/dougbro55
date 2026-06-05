@@ -8,9 +8,13 @@ import {
   updateDocument,
 } from "@/lib/db";
 import { getTemplate, missingRequired, userFields } from "@/lib/templates";
+import { makeShareToken } from "@/lib/share";
+import { sendSms } from "@/lib/twilio";
+import { normalizePhone } from "@/lib/phone";
 import type { DocType } from "@/lib/types";
 
 const DOC_TYPES: DocType[] = ["buyer_rep", "purchase", "dual_agency"];
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://dougbro55.vercel.app";
 
 /** Provider-neutral tool spec. `parameters` is a JSON Schema. */
 export interface ToolSpec {
@@ -102,6 +106,20 @@ export const toolSpecs: ToolSpec[] = [
       type: "object",
       properties: { document_id: { type: "string" } },
       required: ["document_id"],
+    },
+  },
+  {
+    name: "send_document",
+    description:
+      "Text the completed document to a recipient as a secure download link (e.g. to a client, attorney, or the other agent). All required fields must be filled first. Provide the recipient's phone number.",
+    parameters: {
+      type: "object",
+      properties: {
+        document_id: { type: "string" },
+        to_phone: { type: "string", description: "Recipient's phone number." },
+        recipient_name: { type: "string", description: "Optional recipient name for the message." },
+      },
+      required: ["document_id", "to_phone"],
     },
   },
 ];
@@ -233,6 +251,34 @@ export async function runTool(
         document_id: updated.id,
         status: updated.status,
         message: "Document filed to the dashboard. The agent can download the filled PDF.",
+      };
+    }
+
+    case "send_document": {
+      const docId = String(input.document_id);
+      const doc = await getDocument(acc, docId);
+      if (!doc) return { error: `Document ${docId} not found` };
+      const missing = missingLabels(doc.type, doc.fields);
+      if (missing.length) {
+        return { ok: false, missing_required: missing, message: "Fill the required fields before sending." };
+      }
+      const to = normalizePhone(String(input.to_phone));
+      if (!to) return { ok: false, message: "A valid recipient phone number is required." };
+
+      const tpl = getTemplate(doc.type);
+      const link = `${SITE_URL}/api/share/${makeShareToken(docId)}`;
+      const who = (input.recipient_name as string)?.trim();
+      const body = `${who ? who + ", " : ""}here is your ${tpl.name}: ${link}`;
+
+      const sent = await sendSms(to, body);
+      if (!sent.ok) {
+        return { ok: false, message: `Could not send the text: ${sent.error}` };
+      }
+      return {
+        ok: true,
+        to,
+        link,
+        message: `Sent the ${tpl.shortName} link by text to ${to}.`,
       };
     }
 

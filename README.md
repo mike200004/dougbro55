@@ -68,15 +68,14 @@ tools, so adding voice/SMS is not a rewrite.
 `SUPABASE_SERVICE_ROLE_KEY` env vars — the app switches from the local file store
 to Supabase automatically.
 
-## Roadmap
+## Features
 
-- [x] Welcome page
-- [x] Agent dashboard + profile
-- [x] Document engine for the 3 CT forms
-- [x] Web AI assistant (create/fill/file documents)
-- [ ] Vapi voice assistant (call a number, fill a form hands-free)
-- [ ] Twilio SMS assistant
-- [ ] Document delivery (email / e-signature)
+- Agent dashboard + profile
+- Document engine for the 3 CT forms (overlay onto the official PDFs)
+- AI assistant (create/fill/file/send documents) on web, voice, and SMS
+- Accounts + auth; team members (assistants) with delegated access and per-actor attribution
+- Caller-ID gating: only registered numbers reach the phone/SMS assistant
+- Document delivery: text a recipient a secure link to the filled PDF (`send_document`)
 
 ## Dev notes
 

@@ -51,7 +51,7 @@ function validSignature(
 
 export async function POST(req: NextRequest) {
   if (!hasAiKey()) {
-    return twiml("The assistant isn't connected yet. Please try again later.");
+    return twiml("The assistant is temporarily unavailable. Please try again shortly.");
   }
 
   const form = await req.formData();
