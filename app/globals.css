@@ -1,22 +1,24 @@
 :root {
-  --page: #f5f7fa;
-  --surface: #ffffff;
-  --surface-2: #f8fafc;
-  --border: #e3e8ef;
-  --border-strong: #cbd5e1;
-  --text: #1a2433;
-  --muted: #5b6b82;
-  --ink: #1f3a5f; /* deep navy — brand + headings */
-  --brand: #2563eb;
-  --brand-hover: #1d4ed8;
-  --brand-tint: #eaf1fe;
-  --ok: #2f855a;
-  --ok-tint: #e8f5ee;
-  --danger: #c0392b;
-  --shadow: 0 1px 3px rgba(16, 24, 40, 0.06), 0 1px 2px rgba(16, 24, 40, 0.04);
-  --shadow-md: 0 4px 12px rgba(16, 24, 40, 0.08);
-  --font-sans: var(--font-sans-loaded), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-serif: var(--font-serif-loaded), Georgia, "Times New Roman", serif;
+  /* Marble / navy / gold — matched to the Pheme emblem */
+  --page: #efe9df; /* warm marble cream */
+  --surface: #fcfaf5; /* warm white panel */
+  --surface-2: #f3eee3;
+  --border: #e4dccd;
+  --border-strong: #d6cab4;
+  --text: #2c2820; /* warm near-black */
+  --muted: #6f6658;
+  --ink: #1b2b44; /* deep navy — brand + headings */
+  --brand: #1b2b44; /* navy primary */
+  --brand-hover: #2a3c58;
+  --brand-tint: #e7eaf0;
+  --gold: #a9843f; /* emblem gold accent */
+  --gold-tint: #f1e8d6;
+  --ok: #5a7a4e;
+  --ok-tint: #eaf0e3;
+  --danger: #b3402f;
+  --shadow: 0 1px 3px rgba(40, 32, 18, 0.06), 0 1px 2px rgba(40, 32, 18, 0.04);
+  --shadow-md: 0 6px 18px rgba(40, 32, 18, 0.1);
+  /* --font-sans / --font-serif are defined on <body> by next/font (layout.tsx) */
 }
 
 * {
@@ -31,7 +33,7 @@ body {
 }
 
 body {
-  font-family: var(--font-sans);
+  font-family: var(--font-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   color: var(--text);
   background: var(--page);
   min-height: 100vh;
@@ -44,7 +46,7 @@ h1,
 h2,
 h3,
 .serif {
-  font-family: var(--font-serif);
+  font-family: var(--font-serif), Georgia, "Times New Roman", serif;
   color: var(--ink);
   font-weight: 700;
   letter-spacing: -0.01em;
@@ -74,15 +76,15 @@ a:hover {
 }
 .brand {
   font-family: var(--font-serif);
-  font-size: 22px;
+  font-size: 21px;
   font-weight: 700;
   color: var(--ink);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  padding-left: 0.22em; /* offset the trailing tracking so it optically centers */
 }
 .brand:hover {
   text-decoration: none;
-}
-.brandAccent {
-  color: var(--brand);
 }
 .navlinks {
   display: flex;
@@ -102,7 +104,7 @@ a:hover {
   background: var(--surface-2);
 }
 .navlink.active {
-  color: var(--brand);
+  color: var(--gold);
 }
 .navEmail {
   color: var(--muted);
@@ -225,7 +227,7 @@ button.card:hover {
   font-weight: 700;
   letter-spacing: 0.07em;
   text-transform: uppercase;
-  color: var(--brand);
+  color: var(--gold);
 }
 .cardTitle {
   font-family: var(--font-serif);
@@ -287,8 +289,8 @@ button.card:hover {
   background: var(--ok-tint);
 }
 .badgeDraft {
-  color: var(--brand);
-  border-color: #bcd4fb;
+  color: var(--ink);
+  border-color: #c6cdd9;
   background: var(--brand-tint);
 }
 
@@ -385,7 +387,7 @@ button.card:hover {
 .textarea:focus {
   outline: none;
   border-color: var(--brand);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+  box-shadow: 0 0 0 3px rgba(27, 43, 68, 0.15);
 }
 .textarea {
   resize: vertical;
@@ -442,6 +444,34 @@ button.card:hover {
 .hero {
   text-align: center;
   padding: 56px 0 12px;
+}
+.brandLockup {
+  text-align: center;
+  margin-bottom: 18px;
+}
+.brandMark {
+  font-family: var(--font-serif);
+  font-weight: 700;
+  color: var(--ink);
+  font-size: clamp(46px, 8vw, 82px);
+  letter-spacing: 0.18em;
+  padding-left: 0.18em;
+  line-height: 1.05;
+}
+.goldRule {
+  width: 64px;
+  height: 2px;
+  background: var(--gold);
+  margin: 18px auto 14px;
+}
+.brandTagline {
+  font-family: var(--font-sans);
+  text-transform: uppercase;
+  letter-spacing: 0.34em;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  padding-left: 0.34em;
 }
 .heroTitle {
   font-size: clamp(34px, 5vw, 52px);
@@ -563,6 +593,15 @@ button.card:hover {
   }
   .hero {
     padding: 28px 0 4px;
+  }
+  .brandMark {
+    font-size: 40px;
+    letter-spacing: 0.1em;
+    padding-left: 0.1em;
+  }
+  .brandTagline {
+    letter-spacing: 0.2em;
+    padding-left: 0.2em;
   }
   .sectionHeading {
     margin: 40px 0 20px;

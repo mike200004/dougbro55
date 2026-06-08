@@ -23,6 +23,11 @@ export default function Landing() {
   return (
     <div>
       <section className="hero">
+        <div className="brandLockup">
+          <div className="brandMark">PHEME</div>
+          <div className="goldRule" />
+          <div className="brandTagline">Voice that carries.</div>
+        </div>
         <h1 className="heroTitle">Your paperwork, handled — by phone, text, or web.</h1>
         <p className="heroSub">
           Pheme is the assistant for Connecticut real estate agents. Fill, file, and
