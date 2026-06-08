@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
       result = {
         error: "caller_not_registered",
         message:
-          "This caller's number isn't registered. Tell them to sign up at dougbro55.vercel.app, then end the call politely.",
+          "This caller's number isn't registered. Tell them to sign up at pheme.deals, then end the call politely.",
       };
     } else {
       try {
