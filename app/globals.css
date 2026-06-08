@@ -110,6 +110,58 @@ a:hover {
   padding-left: 6px;
 }
 
+/* Hamburger (mobile only) */
+.navToggle {
+  display: none;
+  flex-direction: column;
+  gap: 5px;
+  width: 42px;
+  height: 42px;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.navToggle span {
+  display: block;
+  width: 20px;
+  height: 2px;
+  background: var(--ink);
+  border-radius: 2px;
+}
+.navMobile {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 16px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+.navMobileLink {
+  padding: 13px 6px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  text-align: left;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  font-family: inherit;
+}
+.navMobileLink:hover {
+  text-decoration: none;
+}
+.navMobileLink.active {
+  color: var(--brand);
+}
+.navMobileEmail {
+  padding: 12px 6px 2px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 /* ---------- Layout ---------- */
 .container {
   width: 100%;
@@ -490,4 +542,51 @@ button.card:hover {
 }
 .footer a:hover {
   color: var(--brand);
+}
+
+/* ---------- Responsive ---------- */
+@media (max-width: 640px) {
+  .navDesktop {
+    display: none;
+  }
+  .navToggle {
+    display: flex;
+  }
+  .navInner {
+    padding: 0 16px;
+  }
+  .container {
+    padding: 28px 16px 56px;
+  }
+  .stack {
+    gap: 32px;
+  }
+  .hero {
+    padding: 28px 0 4px;
+  }
+  .sectionHeading {
+    margin: 40px 0 20px;
+    font-size: 24px;
+  }
+  .phoneCallout {
+    margin: 32px auto;
+    padding: 22px 18px;
+  }
+  .heroCtas .btn,
+  .heroCtas .btnLg {
+    flex: 1 1 auto;
+  }
+  .formGrid {
+    grid-template-columns: 1fr;
+  }
+  .footerInner {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+}
+@media (min-width: 641px) {
+  .navMobile {
+    display: none;
+  }
 }

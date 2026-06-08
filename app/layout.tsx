@@ -1,10 +1,8 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { Lato, Merriweather } from "next/font/google";
 import "./globals.css";
 import { getSessionUser } from "@/lib/auth";
-import LogoutButton from "./LogoutButton";
-import NavLinks from "./NavLinks";
+import SiteNav from "./SiteNav";
 
 const lato = Lato({
   subsets: ["latin"],
@@ -34,37 +32,7 @@ export default async function RootLayout({
   return (
     <html lang="en">
       <body className={`${lato.variable} ${merriweather.variable}`}>
-        <nav className="nav">
-          <div className="navInner">
-            <Link href="/" className="brand">
-              Dougbro<span className="brandAccent">55</span>
-            </Link>
-            <div className="navlinks">
-              {user ? (
-                <>
-                  <NavLinks
-                    items={[
-                      { href: "/", label: "Dashboard" },
-                      { href: "/assistant", label: "Assistant" },
-                      { href: "/settings", label: "Settings" },
-                    ]}
-                  />
-                  <span className="navEmail">{user.email}</span>
-                  <LogoutButton />
-                </>
-              ) : (
-                <>
-                  <Link href="/login" className="navlink">
-                    Sign in
-                  </Link>
-                  <Link href="/signup" className="btn btnPrimary">
-                    Sign up
-                  </Link>
-                </>
-              )}
-            </div>
-          </div>
-        </nav>
+        <SiteNav email={user?.email ?? null} />
 
         <div className="container">{children}</div>
 
