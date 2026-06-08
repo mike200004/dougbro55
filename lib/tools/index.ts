@@ -17,7 +17,7 @@ import { normalizePhone } from "@/lib/phone";
 import type { DocType } from "@/lib/types";
 
 const DOC_TYPES: DocType[] = ["buyer_rep", "purchase", "dual_agency"];
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://pheme.vercel.app";
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://dougbro55.vercel.app";
 
 /** Provider-neutral tool spec. `parameters` is a JSON Schema. */
 export interface ToolSpec {

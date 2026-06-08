@@ -20,10 +20,10 @@ import { sendSms } from "@/lib/twilio";
 import { getTemplate, missingRequired } from "@/lib/templates";
 import type { AgentProfile, DocType } from "@/lib/types";
 
-const SEND_SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://pheme.vercel.app";
+const SEND_SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://dougbro55.vercel.app";
 
 const SITE_URL =
-  process.env.NEXT_PUBLIC_SITE_URL || "https://pheme.vercel.app";
+  process.env.NEXT_PUBLIC_SITE_URL || "https://dougbro55.vercel.app";
 
 type ActionResult = { ok: true } | { ok: false; error: string };
 
