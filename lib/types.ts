@@ -22,6 +22,8 @@ export interface Client {
   phone: string | null;
   role: "buyer" | "seller" | "both" | null;
   notes: string | null;
+  preferences: string | null;
+  last_seen_at: string | null;
   created_at: string;
 }
 

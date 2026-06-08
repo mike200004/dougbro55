@@ -26,6 +26,16 @@ const fn = (name, description, parameters) => ({
 const tools = [
   fn("get_agent_profile", "Get the agent's own profile (broker/agency name, license, address, email, phone). Auto-fills the broker side; only call if actually needed.", { type: "object", properties: {} }),
   fn("list_clients", "List the agent's saved clients. Only call if the agent refers to an existing client.", { type: "object", properties: {} }),
+  fn("recall_client", "Recall everything you remember about a person by name (even a partial/family name like 'the Johnsons'): contact, role, preferences, and past deals/properties. Call this the instant a client or property is mentioned so you can reuse what you know instead of re-asking.", {
+    type: "object",
+    properties: { name: { type: "string", description: "Person or family name to recall." } },
+    required: ["name"],
+  }),
+  fn("remember_about_client", "Save a freeform fact/preference about a person so you know it next time (e.g. 'pre-approved to 900k', 'wants 3BR in Darien', 'prefers texts').", {
+    type: "object",
+    properties: { name: { type: "string" }, note: { type: "string" } },
+    required: ["name", "note"],
+  }),
   fn("create_client", "Create a new client (a buyer or seller).", {
     type: "object",
     properties: {
@@ -87,6 +97,11 @@ Style: Talk like a fast, efficient colleague. Replies are ONE short sentence. NE
 Efficiency (important for speed): Minimize tool calls. Do NOT call list_clients or get_agent_profile unless actually needed. Gather the required info first, then create the document ONCE and set ALL fields in a single set_document_fields call, then finalize. Create exactly one document per request — reuse the returned id; never create duplicates. Never invent document ids — use ids returned by tools.
 
 Data: Resolve relative dates against today; store like "12/31/2026". Store currency/percent as just the number (price "1,250,000", fee "2.5"). The broker/agency side auto-fills — never ask for it. "File it" = finalize_document (saves to the dashboard). To "send it" to someone, use send_document with their phone number — it texts them a secure link to the PDF (fill required fields first). When done, confirm in a few words.
+
+People you already know on this account (recall and reuse — the instant one is mentioned, say what you remember and offer to reuse it):
+{{memoryDigest}}
+
+Memory (this is your magic): You already know the people listed above. The instant the agent names someone (even a partial like "the Johnsons") who isn't listed, call recall_client with that name. When you recognize someone, jump in with what you remember (role, last property, key preferences) in one sentence and offer to reuse it — don't make them repeat it. Beat them to it: pre-fill from memory, then confirm. When you learn something personal (budget, beds, timeline, preference), call remember_about_client so you know it next time.
 
 Access: If any tool returns "caller_not_registered", tell the caller their number isn't registered and to sign up at dougbro55.vercel.app, then end politely. Don't collect any information from unregistered callers.`;
 
