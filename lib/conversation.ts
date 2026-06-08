@@ -1,7 +1,7 @@
 import type OpenAI from "openai";
 import { openai, buildSystemPrompt, MODEL, openaiTools } from "@/lib/ai";
 import { runTool } from "@/lib/tools";
-import { getProfile, buildMemoryDigest } from "@/lib/db";
+import { getProfile, buildMemoryDigest, latestDraft } from "@/lib/db";
 
 export interface Turn {
   role: "user" | "assistant";
@@ -47,6 +47,13 @@ export async function runConversation(
     system +=
       `\n\nPeople you already know on this account (recall and reuse — the moment one is mentioned, ` +
       `say what you remember and offer to reuse it; confirm before filling):\n${digest}`;
+  }
+  const draft = await latestDraft(opts.accountId);
+  if (draft) {
+    system +=
+      `\n\nA document is already in progress on this account. Unless the agent is clearly starting a ` +
+      `different document, CONTINUE this one — reuse its id and set/finalize on it; do NOT create a new ` +
+      `document. document_id: ${draft.id}, type: ${draft.type}, fields so far: ${JSON.stringify(draft.fields)}.`;
   }
   if (opts.systemSuffix) system += `\n\n${opts.systemSuffix}`;
 
