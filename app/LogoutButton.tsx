@@ -1,24 +1,15 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
 
 export default function LogoutButton() {
-  const router = useRouter();
   return (
     <button
+      className="navlink"
+      style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}
       onClick={async () => {
         await createSupabaseBrowser().auth.signOut();
-        router.refresh();
-        router.push("/login");
-      }}
-      style={{
-        background: "none",
-        border: "none",
-        color: "var(--text-muted)",
-        cursor: "pointer",
-        font: "inherit",
-        fontSize: 15,
+        window.location.assign("/login");
       }}
     >
       Log out

@@ -61,10 +61,10 @@ export default function Chat() {
             style={{
               alignSelf: m.role === "user" ? "flex-end" : "flex-start",
               maxWidth: "80%",
-              background:
-                m.role === "user" ? "rgba(79,140,255,0.18)" : "rgba(255,255,255,0.05)",
+              background: m.role === "user" ? "var(--brand-tint)" : "var(--surface-2)",
               border: "1px solid var(--border)",
-              borderRadius: 14,
+              color: "var(--text)",
+              borderRadius: 8,
               padding: "10px 14px",
               whiteSpace: "pre-wrap",
               lineHeight: 1.5,

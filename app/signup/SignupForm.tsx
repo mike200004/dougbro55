@@ -1,12 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { createAccountAction } from "@/app/actions";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
 
 export default function SignupForm() {
-  const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,12 +40,11 @@ export default function SignupForm() {
       setBusy(false);
       return;
     }
-    router.refresh();
-    router.push("/");
+    window.location.assign("/");
   }
 
   return (
-    <form onSubmit={submit} className="card">
+    <form onSubmit={submit} className="authCard">
       <div className="formGrid">
         <div className="field">
           <label className="label">Your name <span className="req">*</span></label>
