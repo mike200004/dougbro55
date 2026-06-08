@@ -14,7 +14,7 @@ const env = Object.fromEntries(
 );
 
 const VAPI_KEY = env.VAPI_PRIVATE_KEY;
-const WEBHOOK = "https://dougbro55.vercel.app/api/voice/tools";
+const WEBHOOK = "https://pheme.vercel.app/api/voice/tools";
 const NUMBER = "+14752703374";
 
 const server = { url: WEBHOOK, timeoutSeconds: 20 };
@@ -67,7 +67,7 @@ const tools = [
   }),
 ];
 
-const systemPrompt = `You are the voice assistant for a Connecticut real estate agent's portal ("Dougbro55"). You help the agent quickly fill out and file three official Connecticut documents, hands-free, while they drive.
+const systemPrompt = `You are the voice assistant for a Connecticut real estate agent's portal ("Pheme"). You help the agent quickly fill out and file three official Connecticut documents, hands-free, while they drive.
 
 The three documents:
 - buyer_rep: Exclusive Right to Represent Buyer Agreement (needs buyer name(s), property/area, term start + expiration dates, and the fee % of purchase price).
@@ -97,8 +97,8 @@ async function vapi(path, body) {
 
 // 1. Create assistant
 const assistantBody = {
-  name: "Dougbro55 Assistant",
-  firstMessage: "Hi, this is your Dougbro55 assistant. Which document would you like to work on — a buyer rep, a purchase agreement, or a dual agency consent?",
+  name: "Pheme Assistant",
+  firstMessage: "Hi, this is your Pheme assistant. Which document would you like to work on — a buyer rep, a purchase agreement, or a dual agency consent?",
   model: {
     provider: "openai",
     model: "gpt-4o",
@@ -120,6 +120,6 @@ const p = await vapi("/phone-number", {
   twilioAccountSid: env.TWILIO_ACCOUNT_SID,
   twilioAuthToken: env.TWILIO_AUTH_TOKEN,
   assistantId,
-  name: "Dougbro55 Voice",
+  name: "Pheme Voice",
 });
 console.log("IMPORT NUMBER:", p.status, p.ok ? `phone-number id=${p.json.id} number=${p.json.number}` : JSON.stringify(p.json).slice(0, 800));

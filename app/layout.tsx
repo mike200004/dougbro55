@@ -18,7 +18,7 @@ const merriweather = Merriweather({
 });
 
 export const metadata: Metadata = {
-  title: "Dougbro55 — Real Estate Agent Portal",
+  title: "Pheme — Real Estate Agent Portal",
   description:
     "Fill, file, and send Connecticut real estate documents by voice, text, or web — with an assistant that remembers your clients.",
 };
@@ -40,7 +40,7 @@ export default async function RootLayout({
           <div className="footerInner">
             <span>
               <strong style={{ color: "var(--ink)", fontFamily: "var(--font-serif)" }}>
-                Dougbro55
+                Pheme
               </strong>{" "}
               · Connecticut real estate documents, handled.
             </span>

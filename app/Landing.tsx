@@ -25,7 +25,7 @@ export default function Landing() {
       <section className="hero">
         <h1 className="heroTitle">Your paperwork, handled — by phone, text, or web.</h1>
         <p className="heroSub">
-          Dougbro55 is the assistant for Connecticut real estate agents. Fill, file, and
+          Pheme is the assistant for Connecticut real estate agents. Fill, file, and
           send your standard documents in the time it takes to describe the deal.
         </p>
         <div className="heroCtas">

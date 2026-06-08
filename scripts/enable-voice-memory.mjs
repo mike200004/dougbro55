@@ -22,7 +22,7 @@ const env = Object.fromEntries(
 const KEY = env.VAPI_PRIVATE_KEY;
 const PHONE_ID = "c4bc2d98-b6e9-462a-bf45-26d95273402d";
 const ASSISTANT_ID = "8e46aebd-e589-4d6f-a614-7e2dfdfc621a";
-const SITE = env.NEXT_PUBLIC_SITE_URL || "https://dougbro55.vercel.app";
+const SITE = env.NEXT_PUBLIC_SITE_URL || "https://pheme.vercel.app";
 const rollback = process.argv.includes("--rollback");
 
 const body = rollback

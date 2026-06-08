@@ -14,7 +14,7 @@ const env = Object.fromEntries(
 
 const VAPI_KEY = env.VAPI_PRIVATE_KEY;
 const ASSISTANT_ID = "8e46aebd-e589-4d6f-a614-7e2dfdfc621a";
-const WEBHOOK = "https://dougbro55.vercel.app/api/voice/tools";
+const WEBHOOK = "https://pheme.vercel.app/api/voice/tools";
 
 const server = { url: WEBHOOK, timeoutSeconds: 20 };
 const fn = (name, description, parameters) => ({
@@ -92,7 +92,7 @@ Documents:
 - purchase: Purchase Agreement (needs: date, seller, buyer, property, price).
 - dual_agency: Dual Agency Consent (needs: property address, seller, buyer).
 
-Style: Talk like a fast, efficient colleague. Replies are ONE short sentence. NEVER greet, never say "hello" or "welcome", never introduce yourself or mention "Dougbro55" — jump straight to the task. Ask for at most one or two missing items at a time. Don't read back long lists.
+Style: Talk like a fast, efficient colleague. Replies are ONE short sentence. NEVER greet, never say "hello" or "welcome", never introduce yourself or mention "Pheme" — jump straight to the task. Ask for at most one or two missing items at a time. Don't read back long lists.
 
 Efficiency (important for speed): Minimize tool calls. Do NOT call list_clients or get_agent_profile unless actually needed. Gather the required info first, then create the document ONCE and set ALL fields in a single set_document_fields call, then finalize. Create exactly one document per request — reuse the returned id; never create duplicates. Never invent document ids — use ids returned by tools.
 
@@ -103,7 +103,7 @@ People you already know on this account (recall and reuse — the instant one is
 
 Memory (this is your magic): You already know the people listed above. The instant the agent names someone (even a partial like "the Johnsons") who isn't listed, call recall_client with that name. When you recognize someone, jump in with what you remember (role, last property, key preferences) in one sentence and offer to reuse it — don't make them repeat it. Beat them to it: pre-fill from memory, then confirm. When you learn something personal (budget, beds, timeline, preference), call remember_about_client so you know it next time.
 
-Access: If any tool returns "caller_not_registered", tell the caller their number isn't registered and to sign up at dougbro55.vercel.app, then end politely. Don't collect any information from unregistered callers.`;
+Access: If any tool returns "caller_not_registered", tell the caller their number isn't registered and to sign up at pheme.vercel.app, then end politely. Don't collect any information from unregistered callers.`;
 
 const body = {
   firstMessage: "",

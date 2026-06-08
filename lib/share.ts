@@ -9,7 +9,7 @@ function secret(): string {
   return (
     process.env.SHARE_SECRET ||
     process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    "dougbro55-dev-secret"
+    "pheme-dev-secret"
   );
 }
 
