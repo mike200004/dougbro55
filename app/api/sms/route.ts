@@ -78,7 +78,7 @@ export async function POST(req: NextRequest) {
   const actor = await getAccountByPhone(phone);
   if (!actor) {
     return twiml(
-      "This number isn't registered. Sign up at dougbro55.vercel.app to use the assistant, then text from this phone.",
+      "This number isn't registered. Sign up at pheme.deals to use the assistant, then text from this phone.",
     );
   }
 

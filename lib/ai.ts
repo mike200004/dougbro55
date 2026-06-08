@@ -49,7 +49,7 @@ export function buildSystemPrompt(
     ? `You are assisting ${profile.agent_name || "the agent"} of ${profile.broker_agency_name || "their brokerage"}. Their broker/agency details auto-fill the broker side of every form, so never ask for them.`
     : `The agent has not filled in their profile yet. If broker/agency details are needed, suggest they complete Settings.`;
 
-  return `You are the AI assistant for a Connecticut real estate agent's personal portal ("Dougbro55"). You help with the day-to-day work of being an agent — most importantly, quickly filling out and filing three official Connecticut documents.
+  return `You are the AI assistant for a Connecticut real estate agent's personal portal ("Pheme"). You help with the day-to-day work of being an agent — most importantly, quickly filling out and filing three official Connecticut documents.
 
 ${profileLine}
 Today's date is ${todayIso}.

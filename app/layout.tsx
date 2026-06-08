@@ -7,18 +7,18 @@ import SiteNav from "./SiteNav";
 const lato = Lato({
   subsets: ["latin"],
   weight: ["400", "700", "900"],
-  variable: "--font-sans-loaded",
+  variable: "--font-sans",
   display: "swap",
 });
 const merriweather = Merriweather({
   subsets: ["latin"],
   weight: ["400", "700"],
-  variable: "--font-serif-loaded",
+  variable: "--font-serif",
   display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "Dougbro55 — Real Estate Agent Portal",
+  title: "Pheme — Real Estate Agent Portal",
   description:
     "Fill, file, and send Connecticut real estate documents by voice, text, or web — with an assistant that remembers your clients.",
 };
@@ -40,9 +40,9 @@ export default async function RootLayout({
           <div className="footerInner">
             <span>
               <strong style={{ color: "var(--ink)", fontFamily: "var(--font-serif)" }}>
-                Dougbro55
+                Pheme
               </strong>{" "}
-              · Connecticut real estate documents, handled.
+              · Voice that carries.
             </span>
             <span>
               Call or text <a href="tel:+14752703374">(475) 270-3374</a> · © {year}

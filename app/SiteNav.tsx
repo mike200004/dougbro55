@@ -30,7 +30,7 @@ export default function SiteNav({ email }: { email: string | null }) {
     <nav className="nav">
       <div className="navInner">
         <Link href="/" className="brand" onClick={() => setOpen(false)}>
-          Dougbro<span className="brandAccent">55</span>
+          Pheme
         </Link>
 
         {/* Desktop */}

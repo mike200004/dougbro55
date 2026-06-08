@@ -1,4 +1,4 @@
--- Dougbro55 schema. Apply once the Supabase project is provisioned
+-- Pheme schema. Apply once the Supabase project is provisioned
 -- (via the Supabase MCP apply_migration or `supabase db push`).
 
 create table if not exists agent_profile (
