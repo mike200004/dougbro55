@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 
 const FEATURES = [
   {
@@ -23,10 +24,14 @@ export default function Landing() {
   return (
     <div>
       <section className="hero">
-        <div className="brandLockup">
-          <div className="brandMark">PHEME</div>
-          <div className="goldRule" />
-          <div className="brandTagline">Voice that carries.</div>
+        <div className="heroLogo">
+          <Image
+            src="/pheme-mark.png"
+            alt="Pheme — Voice that carries."
+            width={1402}
+            height={1122}
+            priority
+          />
         </div>
         <h1 className="heroTitle">Your paperwork, handled — by phone, text, or web.</h1>
         <p className="heroSub">

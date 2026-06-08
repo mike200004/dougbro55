@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import SignupForm from "./SignupForm";
 
 export const dynamic = "force-dynamic";
@@ -6,6 +7,9 @@ export const dynamic = "force-dynamic";
 export default function SignupPage() {
   return (
     <div className="authWrap" style={{ maxWidth: 520 }}>
+      <div className="authLogo">
+        <Image src="/pheme-mark.png" alt="Pheme" width={1402} height={1122} priority />
+      </div>
       <h1 className="pageTitle">Create your account</h1>
       <p className="pageSub">
         Sign up to use the assistant by web, phone, or text. The phone number you

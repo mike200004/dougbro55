@@ -1,6 +1,6 @@
 :root {
   /* Marble / navy / gold — matched to the Pheme emblem */
-  --page: #efe9df; /* warm marble cream */
+  --page: #e9e1d8; /* sampled from the emblem's marble so the logo blends seamlessly */
   --surface: #fcfaf5; /* warm white panel */
   --surface-2: #f3eee3;
   --border: #e4dccd;
@@ -444,6 +444,24 @@ button.card:hover {
 .hero {
   text-align: center;
   padding: 56px 0 12px;
+}
+.heroLogo {
+  width: min(440px, 82vw);
+  margin: 0 auto 18px;
+}
+.heroLogo img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.authLogo {
+  width: 200px;
+  margin: 0 auto 18px;
+}
+.authLogo img {
+  display: block;
+  width: 100%;
+  height: auto;
 }
 .brandLockup {
   text-align: center;
