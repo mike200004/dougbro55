@@ -1,12 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
 import { acceptInviteAction } from "@/app/actions";
 
 export default function AcceptInvite() {
-  const router = useRouter();
   const [ready, setReady] = useState(false);
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -40,8 +38,7 @@ export default function AcceptInvite() {
       return;
     }
     await acceptInviteAction();
-    router.refresh();
-    router.push("/");
+    window.location.assign("/");
   }
 
   if (error && !ready) {

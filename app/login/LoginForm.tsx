@@ -1,11 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
 
 export default function LoginForm() {
-  const router = useRouter();
   const params = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -23,12 +22,12 @@ export default function LoginForm() {
       setBusy(false);
       return;
     }
-    router.refresh();
-    router.push(params.get("next") || "/");
+    // Full navigation so the server-rendered layout (nav) reflects auth state.
+    window.location.assign(params.get("next") || "/");
   }
 
   return (
-    <form onSubmit={submit} className="card">
+    <form onSubmit={submit} className="authCard">
       <div className="field">
         <label className="label">Email</label>
         <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />

@@ -40,9 +40,7 @@ export default async function DocumentPage({
       {!profile && (
         <div className="notice">
           No agent profile set — the broker/agency section will be blank. Add it in{" "}
-          <Link href="/settings" style={{ color: "#ffd87a", textDecoration: "underline" }}>
-            Settings
-          </Link>
+          <Link href="/settings">Settings</Link>
           .
         </div>
       )}

@@ -6,20 +6,14 @@ export const dynamic = "force-dynamic";
 
 export default function LoginPage() {
   return (
-    <div className="stack" style={{ maxWidth: 420, margin: "0 auto" }}>
-      <div>
-        <h1 className="pageTitle">Sign in</h1>
-        <p className="pageSub">Welcome back to your portal.</p>
-      </div>
+    <div className="authWrap">
+      <h1 className="pageTitle">Sign in</h1>
+      <p className="pageSub">Welcome back to your portal.</p>
       <Suspense>
         <LoginForm />
       </Suspense>
-      <p className="muted">
-        No account?{" "}
-        <Link href="/signup" style={{ color: "var(--brand-soft)" }}>
-          Create one
-        </Link>
-        .
+      <p className="muted" style={{ marginTop: 16 }}>
+        No account? <Link href="/signup">Create one</Link>.
       </p>
     </div>
   );

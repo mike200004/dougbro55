@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { getProfile, listClients, listDocuments, memberNames } from "@/lib/db";
 import { templateList, getTemplate } from "@/lib/templates";
-import { requireAccount } from "@/lib/auth";
+import { getAccount } from "@/lib/auth";
 import { newDocumentAction } from "./actions";
 import AddClient from "./AddClient";
+import Landing from "./Landing";
 
 export const dynamic = "force-dynamic";
 
@@ -12,8 +13,9 @@ function greeting(name: string | undefined) {
   return who ? `Welcome back, ${who}` : "Welcome to your portal";
 }
 
-export default async function Dashboard() {
-  const account = await requireAccount();
+export default async function Home() {
+  const account = await getAccount();
+  if (!account) return <Landing />;
   const { accountId } = account;
   const [profile, clients, documents, names] = await Promise.all([
     getProfile(accountId),
@@ -28,9 +30,7 @@ export default async function Dashboard() {
         <h1 className="pageTitle">{greeting(account.name || profile?.agent_name)}</h1>
         <p className="pageSub">
           Your real estate home base. Start a document below, or talk to your{" "}
-          <Link href="/assistant" style={{ color: "var(--brand-soft)" }}>
-            AI assistant
-          </Link>{" "}
+          <Link href="/assistant">AI assistant</Link>{" "}
           to fill one out hands-free.
         </p>
       </header>
@@ -98,11 +98,7 @@ export default async function Dashboard() {
                   <div className="rowSub">
                     {[c.role, c.email, c.phone].filter(Boolean).join(" · ") || "—"}
                   </div>
-                  {c.preferences && (
-                    <div className="rowSub" style={{ color: "var(--brand-soft)", marginTop: 2 }}>
-                      🧠 {c.preferences}
-                    </div>
-                  )}
+                  {c.preferences && <div className="rowNote">Remembers: {c.preferences}</div>}
                 </div>
               </div>
             ))}
@@ -113,10 +109,7 @@ export default async function Dashboard() {
 
       {!profile && (
         <div className="notice">
-          Tip: fill in your agent profile in{" "}
-          <Link href="/settings" style={{ color: "#ffd87a", textDecoration: "underline" }}>
-            Settings
-          </Link>{" "}
+          Tip: fill in your agent profile in <Link href="/settings">Settings</Link>{" "}
           so the broker/agency details auto-fill on every document.
         </div>
       )}
