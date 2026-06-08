@@ -165,7 +165,10 @@ export async function getClient(
 
 export async function createClient_(
   accountId: string,
-  input: Omit<Client, "id" | "created_at">,
+  input: Omit<Client, "id" | "created_at" | "preferences" | "last_seen_at"> & {
+    preferences?: string | null;
+    last_seen_at?: string | null;
+  },
 ): Promise<Client> {
   const { data, error } = await admin()
     .from("clients")
@@ -174,6 +177,167 @@ export async function createClient_(
     .single();
   if (error) throw new Error(error.message);
   return data as Client;
+}
+
+// ---------------------------------------------------------------------------
+// Client memory: auto-learn, recall, and the priming digest
+// ---------------------------------------------------------------------------
+
+function normName(s: string | null | undefined): string {
+  return (s ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+/** True if `needle` (e.g. "the Johnsons" / "Johnson") refers to `name`. */
+function nameMatches(name: string | null | undefined, needle: string): boolean {
+  const a = normName(name);
+  const b = normName(needle).replace(/^the\s+/, "");
+  if (!a || !b) return false;
+  if (a.includes(b) || b.includes(a)) return true;
+  // token overlap (surname match): "robert johnson" vs "the johnsons"
+  const at = new Set(a.split(" "));
+  return b.split(" ").some((t) => t.length > 2 && (at.has(t) || at.has(t.replace(/s$/, ""))));
+}
+
+async function patchClient(
+  accountId: string,
+  clientId: string,
+  patch: Partial<Client>,
+): Promise<void> {
+  await admin().from("clients").update(patch).eq("account_id", accountId).eq("id", clientId);
+}
+
+/** Insert or update a client by name; merges role and bumps last_seen_at. */
+export async function upsertClientByName(
+  accountId: string,
+  input: { name: string; role?: "buyer" | "seller"; secondary?: string | null },
+): Promise<Client | null> {
+  const name = input.name?.trim();
+  if (!name) return null;
+  const existing = (await listClients(accountId)).find(
+    (c) => normName(c.full_name) === normName(name),
+  );
+  if (existing) {
+    const patch: Partial<Client> = { last_seen_at: nowIso() };
+    if (input.role && existing.role && existing.role !== input.role && existing.role !== "both") {
+      patch.role = "both";
+    } else if (input.role && !existing.role) {
+      patch.role = input.role;
+    }
+    if (input.secondary && !existing.secondary_name) patch.secondary_name = input.secondary;
+    await patchClient(accountId, existing.id, patch);
+    return { ...existing, ...patch };
+  }
+  return await createClient_(accountId, {
+    full_name: name,
+    secondary_name: input.secondary ?? null,
+    email: null,
+    phone: null,
+    role: input.role ?? null,
+    notes: null,
+    last_seen_at: nowIso(),
+  });
+}
+
+/** Auto-learn the parties + property from a document's fields. */
+export async function rememberParties(accountId: string, doc: DocumentRecord): Promise<void> {
+  const f = doc.fields || {};
+  let primary: Client | null = null;
+  if (f.buyerName) primary = (await upsertClientByName(accountId, { name: f.buyerName, role: "buyer" })) ?? primary;
+  if (f.sellerName) {
+    const seller = await upsertClientByName(accountId, { name: f.sellerName, role: "seller" });
+    if (!primary) primary = seller;
+  }
+  // Link the document to the primary party if it isn't linked yet.
+  if (primary && !doc.client_id) {
+    await admin().from("documents").update({ client_id: primary.id }).eq("account_id", accountId).eq("id", doc.id);
+  }
+}
+
+export interface Deal {
+  type: DocType;
+  property: string;
+  status: string;
+  date: string;
+}
+
+export interface Dossier {
+  client: Client;
+  deals: Deal[];
+  coParties: string[];
+}
+
+/** Everything we remember about a person, found by fuzzy name. */
+export async function getClientDossier(accountId: string, name: string): Promise<Dossier | null> {
+  const clients = await listClients(accountId);
+  const matches = clients.filter(
+    (c) => nameMatches(c.full_name, name) || nameMatches(c.secondary_name, name),
+  );
+  if (!matches.length) return null;
+  matches.sort((a, b) => (b.last_seen_at ?? "").localeCompare(a.last_seen_at ?? ""));
+  const client = matches[0];
+
+  const docs = await listDocuments(accountId);
+  const theirs = docs.filter(
+    (d) =>
+      d.client_id === client.id ||
+      nameMatches(d.fields?.buyerName, client.full_name) ||
+      nameMatches(d.fields?.sellerName, client.full_name),
+  );
+  const deals: Deal[] = theirs.map((d) => ({
+    type: d.type,
+    property: d.fields?.propertyAddress || "",
+    status: d.status,
+    date: d.created_at,
+  }));
+  const coParties = Array.from(
+    new Set(
+      theirs.flatMap((d) =>
+        [d.fields?.buyerName, d.fields?.sellerName].filter(
+          (n): n is string => !!n && !nameMatches(n, client.full_name),
+        ),
+      ),
+    ),
+  );
+  return { client, deals, coParties };
+}
+
+/** Append a freeform fact to a client's preferences memory (found by name). */
+export async function rememberAboutClient(
+  accountId: string,
+  name: string,
+  note: string,
+): Promise<Client | null> {
+  const clients = await listClients(accountId);
+  const client =
+    clients.find((c) => normName(c.full_name) === normName(name)) ||
+    clients.find((c) => nameMatches(c.full_name, name) || nameMatches(c.secondary_name, name));
+  if (!client) return null;
+  const prefs = [client.preferences, note.trim()].filter(Boolean).join("; ");
+  await patchClient(accountId, client.id, { preferences: prefs, last_seen_at: nowIso() });
+  return { ...client, preferences: prefs };
+}
+
+/** Compact "people you know" digest to prime the assistant before the agent speaks. */
+export async function buildMemoryDigest(accountId: string, limit = 12): Promise<string> {
+  const clients = await listClients(accountId);
+  if (!clients.length) return "";
+  clients.sort((a, b) =>
+    (b.last_seen_at ?? b.created_at).localeCompare(a.last_seen_at ?? a.created_at),
+  );
+  const docs = await listDocuments(accountId);
+  const lines = clients.slice(0, limit).map((c) => {
+    const lastDoc = docs.find(
+      (d) =>
+        d.client_id === c.id ||
+        nameMatches(d.fields?.buyerName, c.full_name) ||
+        nameMatches(d.fields?.sellerName, c.full_name),
+    );
+    const property = lastDoc?.fields?.propertyAddress;
+    const name = c.secondary_name ? `${c.full_name} & ${c.secondary_name}` : c.full_name;
+    const bits = [c.role, property, c.preferences].filter(Boolean).join(", ");
+    return `- ${name}${bits ? ` — ${bits}` : ""}`;
+  });
+  return lines.join("\n");
 }
 
 // ---------------------------------------------------------------------------

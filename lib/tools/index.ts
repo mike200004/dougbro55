@@ -2,9 +2,12 @@ import {
   createClient_,
   createDocument,
   getClient,
+  getClientDossier,
   getDocument,
   getProfile,
   listClients,
+  rememberAboutClient,
+  rememberParties,
   updateDocument,
 } from "@/lib/db";
 import { getTemplate, missingRequired, userFields } from "@/lib/templates";
@@ -34,6 +37,29 @@ export const toolSpecs: ToolSpec[] = [
     name: "list_clients",
     description: "List the agent's saved clients.",
     parameters: { type: "object", properties: {} },
+  },
+  {
+    name: "recall_client",
+    description:
+      "Recall everything you remember about a person by name (even a partial/family name like 'the Johnsons'). Returns their contact info, role, preferences, and past deals/properties. Call this the moment a client or property is mentioned, so you can greet them by name and reuse what you know instead of re-asking.",
+    parameters: {
+      type: "object",
+      properties: { name: { type: "string", description: "Person or family name to recall." } },
+      required: ["name"],
+    },
+  },
+  {
+    name: "remember_about_client",
+    description:
+      "Save a freeform fact or preference about a person so you'll know it next time (e.g. 'pre-approved to $900k', 'wants 3BR in Darien', 'prefers texts', 'has a dog named Max'). Use whenever you learn something personal or useful about a client.",
+    parameters: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Who this is about." },
+        note: { type: "string", description: "The fact/preference to remember." },
+      },
+      required: ["name", "note"],
+    },
   },
   {
     name: "create_client",
@@ -160,6 +186,30 @@ export async function runTool(
     case "list_clients":
       return await listClients(acc);
 
+    case "recall_client": {
+      const dossier = await getClientDossier(acc, String(input.name || ""));
+      if (!dossier) return { found: false, message: `No memory of "${input.name}" yet.` };
+      const { client, deals, coParties } = dossier;
+      return {
+        found: true,
+        name: client.full_name,
+        secondary_name: client.secondary_name,
+        role: client.role,
+        email: client.email,
+        phone: client.phone,
+        preferences: client.preferences,
+        notes: client.notes,
+        co_parties: coParties,
+        deals: deals.map((d) => ({ type: d.type, property: d.property, status: d.status, date: d.date })),
+      };
+    }
+
+    case "remember_about_client": {
+      const c = await rememberAboutClient(acc, String(input.name || ""), String(input.note || ""));
+      if (!c) return { ok: false, message: `No client named "${input.name}" found to attach that to.` };
+      return { ok: true, name: c.full_name, preferences: c.preferences, message: "Got it — I'll remember that." };
+    }
+
     case "create_client": {
       const client = await createClient_(acc, {
         full_name: String(input.full_name),
@@ -210,6 +260,7 @@ export async function runTool(
         else rejected.push(k);
       }
       const updated = await updateDocument(acc, docId, { fields: accepted });
+      await rememberParties(acc, updated); // auto-learn the parties + property
       return {
         document_id: docId,
         updated_fields: Object.keys(accepted),
@@ -246,6 +297,7 @@ export async function runTool(
         };
       }
       const updated = await updateDocument(acc, docId, { status: "completed" });
+      await rememberParties(acc, doc); // ensure parties + property are remembered
       return {
         ok: true,
         document_id: updated.id,

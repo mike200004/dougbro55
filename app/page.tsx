@@ -92,10 +92,17 @@ export default async function Dashboard() {
             {clients.slice(0, 6).map((c) => (
               <div key={c.id} className="row">
                 <div>
-                  <div className="rowMain">{c.full_name}</div>
+                  <div className="rowMain">
+                    {c.secondary_name ? `${c.full_name} & ${c.secondary_name}` : c.full_name}
+                  </div>
                   <div className="rowSub">
                     {[c.role, c.email, c.phone].filter(Boolean).join(" · ") || "—"}
                   </div>
+                  {c.preferences && (
+                    <div className="rowSub" style={{ color: "var(--brand-soft)", marginTop: 2 }}>
+                      🧠 {c.preferences}
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
