@@ -184,6 +184,20 @@ interface DocSchema {
   validKeys: Set<string>;
   fields: { key: string; label: string; type: string; required: boolean; options?: string[] }[];
   missing: (values: Record<string, string>) => string[];
+  uploaded: boolean;
+  /** Map a possibly-loose incoming key (e.g. "client_name") to the real field key. */
+  resolveKey: (incoming: string) => string | null;
+}
+
+const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+function makeResolver(fields: { key: string; label: string }[]): (k: string) => string | null {
+  const map = new Map<string, string>();
+  for (const f of fields) {
+    map.set(norm(f.key), f.key);
+    if (f.label) map.set(norm(f.label), f.key);
+  }
+  return (incoming: string) => map.get(norm(incoming)) ?? null;
 }
 
 /** Field schema for a document — built-in template OR uploaded form template. */
@@ -201,13 +215,18 @@ async function docSchema(acc: string, doc: DocumentRecord): Promise<DocSchema> {
       validKeys: new Set(fields.map((f) => f.key)),
       fields,
       missing: () => [], // uploaded forms have no required-field metadata
+      uploaded: true,
+      resolveKey: makeResolver(fields),
     };
   }
   const type = doc.type as DocType;
+  const fields = fieldSchemaFor(type);
   return {
     validKeys: new Set(userFields(type).filter((f) => !f.source).map((f) => f.key)),
-    fields: fieldSchemaFor(type),
+    fields,
     missing: (values) => missingLabels(type, values),
+    uploaded: false,
+    resolveKey: makeResolver(fields),
   };
 }
 
@@ -325,7 +344,8 @@ export async function runTool(
       const accepted: Record<string, string> = {};
       const rejected: string[] = [];
       for (const [k, v] of Object.entries(incoming)) {
-        if (schema.validKeys.has(k)) accepted[k] = String(v);
+        const canonical = schema.validKeys.has(k) ? k : schema.resolveKey(k);
+        if (canonical) accepted[canonical] = String(v);
         else rejected.push(k);
       }
       const updated = await updateDocument(acc, docId, { fields: accepted });
@@ -358,12 +378,20 @@ export async function runTool(
       const docId = String(input.document_id);
       const doc = await getDocument(acc, docId);
       if (!doc) return { error: `Document ${docId} not found` };
-      const missing = (await docSchema(acc, doc)).missing(doc.fields);
+      const fschema = await docSchema(acc, doc);
+      const missing = fschema.missing(doc.fields);
       if (missing.length) {
         return {
           ok: false,
           missing_required: missing,
           message: "Cannot finalize: required fields are still missing.",
+        };
+      }
+      // Don't file a totally blank uploaded form.
+      if (fschema.uploaded && Object.values(doc.fields).every((v) => !String(v).trim())) {
+        return {
+          ok: false,
+          message: "Set at least one field on this form before filing it.",
         };
       }
       const updated = await updateDocument(acc, docId, { status: "completed" });
