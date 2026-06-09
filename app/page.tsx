@@ -4,7 +4,6 @@ import { templateList, getTemplate } from "@/lib/templates";
 import { getAccount } from "@/lib/auth";
 import { newDocumentAction, startFromTemplateAction } from "./actions";
 import AddClient from "./AddClient";
-import UploadForm from "./UploadForm";
 import Landing from "./Landing";
 
 export const dynamic = "force-dynamic";
@@ -86,7 +85,7 @@ export default async function Home() {
             ))}
           </div>
         )}
-        <UploadForm />
+        <Link href="/forms/new" className="btn">+ Upload a form</Link>
       </section>
 
       <section>

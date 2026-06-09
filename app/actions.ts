@@ -230,7 +230,9 @@ export async function saveDocumentFieldsAction(docId: string, formData: FormData
   revalidatePath("/");
 }
 
-export async function uploadFormAction(formData: FormData): Promise<ActionResult> {
+export async function uploadFormAction(
+  formData: FormData,
+): Promise<{ ok: true } | { ok: false; error: string; flat?: boolean }> {
   const { accountId, userId } = await requireAccount();
   const file = formData.get("file") as File | null;
   if (!file || file.size === 0) return { ok: false, error: "Choose a PDF to upload." };
@@ -244,11 +246,8 @@ export async function uploadFormAction(formData: FormData): Promise<ActionResult
     return { ok: false, error: "Couldn't read that PDF. Make sure it's a valid form." };
   }
   if (!acroFields.length) {
-    return {
-      ok: false,
-      error:
-        "This PDF has no fillable fields yet. Flat/scanned form support is coming soon — for now, upload a fillable (AcroForm) PDF.",
-    };
+    // Flat / scanned form — the client will run vision-based field placement.
+    return { ok: false, flat: true, error: "This form has no fillable fields — let's place them." };
   }
 
   const name = (String(formData.get("name") || "").trim() || file.name.replace(/\.pdf$/i, "")) || "Uploaded form";
@@ -259,6 +258,35 @@ export async function uploadFormAction(formData: FormData): Promise<ActionResult
     kind: "acroform",
     storage_path: storagePath,
     fields: acroFields,
+    created_by: userId,
+  });
+  revalidatePath("/");
+  return { ok: true };
+}
+
+/** Save a flat/scanned form with vision-detected overlay placements. */
+export async function saveOverlayTemplateAction(input: {
+  name: string;
+  pdfBase64: string;
+  fields: { key: string; label: string; type: string; placement: { page: number; x: number; y: number; size?: number; maxWidth?: number } }[];
+}): Promise<ActionResult> {
+  const { accountId, userId } = await requireAccount();
+  if (!input.pdfBase64) return { ok: false, error: "Missing the PDF." };
+  if (!input.fields?.length) return { ok: false, error: "Add at least one field." };
+
+  const bytes = Buffer.from(input.pdfBase64, "base64");
+  const storagePath = `${accountId}/${randomUUID()}.pdf`;
+  await uploadTemplateFile(storagePath, bytes);
+  await createFormTemplate(accountId, {
+    name: input.name.trim() || "Uploaded form",
+    kind: "overlay",
+    storage_path: storagePath,
+    fields: input.fields.map((f) => ({
+      key: f.key,
+      label: f.label,
+      type: "text" as const,
+      placement: f.placement,
+    })),
     created_by: userId,
   });
   revalidatePath("/");

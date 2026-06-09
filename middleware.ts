@@ -3,7 +3,7 @@ import { createServerClient } from "@supabase/ssr";
 
 // Routes that require authentication. ("/" is public — it shows the landing
 // page to logged-out visitors and the dashboard to signed-in users.)
-const PROTECTED = ["/documents", "/settings", "/assistant"];
+const PROTECTED = ["/documents", "/settings", "/assistant", "/forms"];
 
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request });
