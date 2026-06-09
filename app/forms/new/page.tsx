@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { uploadFormAction, saveOverlayTemplateAction } from "@/app/actions";
 
@@ -36,6 +36,20 @@ export default function NewFormPage() {
   const [error, setError] = useState<string | null>(null);
   const [pages, setPages] = useState<RenderedPage[]>([]);
   const [fields, setFields] = useState<PlacedField[]>([]);
+  const dragIdx = useRef<number | null>(null);
+
+  function dragMove(e: React.PointerEvent<HTMLDivElement>, pi: number) {
+    if (dragIdx.current === null) return;
+    const idx = dragIdx.current;
+    if ((fields[idx]?.placement.page ?? 0) !== pi) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const fracX = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+    const fracY = Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height));
+    const pg = pages[pi];
+    const x = Math.round(fracX * pg.wPt);
+    const y = Math.round(pg.hPt - fracY * pg.hPt);
+    setFields((fs) => fs.map((f, j) => (j === idx ? { ...f, placement: { ...f.placement, x, y } } : f)));
+  }
 
   async function analyze() {
     if (!file) {
@@ -195,28 +209,44 @@ export default function NewFormPage() {
             </div>
           </div>
 
+          <p className="muted" style={{ textAlign: "center" }}>
+            The numbered markers show where each value will print. <strong>Drag any marker</strong> to fine-tune it.
+          </p>
           {pages.map((p, pi) => (
-            <div key={pi} style={{ position: "relative", maxWidth: 720, margin: "0 auto" }}>
+            <div
+              key={pi}
+              onPointerMove={(e) => dragMove(e, pi)}
+              onPointerUp={() => (dragIdx.current = null)}
+              onPointerLeave={() => (dragIdx.current = null)}
+              style={{ position: "relative", maxWidth: 720, margin: "0 auto", touchAction: "none" }}
+            >
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={p.dataUrl} alt={`Page ${pi + 1}`} style={{ width: "100%", display: "block", border: "1px solid var(--border)", borderRadius: 6 }} />
+              <img src={p.dataUrl} alt={`Page ${pi + 1}`} draggable={false} style={{ width: "100%", display: "block", border: "1px solid var(--border)", borderRadius: 6 }} />
               {fields
                 .map((f, idx) => ({ f, idx }))
                 .filter(({ f }) => (f.placement.page ?? 0) === pi)
                 .map(({ f, idx }) => (
                   <span
                     key={f.key}
-                    title={f.label}
+                    title={`${f.label} — drag to move`}
+                    onPointerDown={(e) => {
+                      e.preventDefault();
+                      dragIdx.current = idx;
+                    }}
                     style={{
                       position: "absolute",
                       left: `${(f.placement.x / p.wPt) * 100}%`,
                       top: `${((p.hPt - f.placement.y) / p.hPt) * 100}%`,
-                      transform: "translate(0, -100%)",
+                      transform: "translate(-2px, -100%)",
                       background: "var(--brand)",
                       color: "#fff",
                       fontSize: 11,
                       fontWeight: 700,
                       borderRadius: 4,
-                      padding: "1px 5px",
+                      padding: "1px 6px",
+                      cursor: "grab",
+                      userSelect: "none",
+                      boxShadow: "0 1px 4px rgba(0,0,0,0.3)",
                     }}
                   >
                     {idx + 1}

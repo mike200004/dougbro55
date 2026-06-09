@@ -86,6 +86,7 @@ export async function POST(req: NextRequest) {
         result = await runTool(name, args, {
           accountId: actor.accountId,
           actorId: actor.memberId,
+          actorPhone: callerPhone ?? undefined,
         });
       } catch (err) {
         result = { error: err instanceof Error ? err.message : String(err) };

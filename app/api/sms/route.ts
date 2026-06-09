@@ -92,6 +92,7 @@ export async function POST(req: NextRequest) {
       accountId: actor.accountId,
       actorId: actor.memberId,
       actorName: actor.name,
+      actorPhone: phone,
       role: actor.role,
       systemSuffix: SMS_SUFFIX,
     });

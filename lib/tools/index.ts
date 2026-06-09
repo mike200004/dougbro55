@@ -151,15 +151,18 @@ export const toolSpecs: ToolSpec[] = [
   {
     name: "send_document",
     description:
-      "Text the completed document to a recipient as a secure download link (e.g. to a client, attorney, or the other agent). All required fields must be filled first. Provide the recipient's phone number.",
+      "Text the completed document as a secure download link. Use this when the agent says to send it somewhere — to a client/attorney/other agent (give their number), or to THEMSELVES (e.g. 'text it to me', 'send it to my phone') — in which case omit to_phone and it goes to the agent's own number.",
     parameters: {
       type: "object",
       properties: {
         document_id: { type: "string" },
-        to_phone: { type: "string", description: "Recipient's phone number." },
+        to_phone: {
+          type: "string",
+          description: "Recipient's phone number. Omit (or leave blank) to send to the agent themselves.",
+        },
         recipient_name: { type: "string", description: "Optional recipient name for the message." },
       },
-      required: ["document_id", "to_phone"],
+      required: ["document_id"],
     },
   },
 ];
@@ -233,6 +236,7 @@ async function docSchema(acc: string, doc: DocumentRecord): Promise<DocSchema> {
 export interface ToolContext {
   accountId: string;
   actorId?: string; // who is acting (owner or assistant member id)
+  actorPhone?: string; // the acting agent's own phone (caller/sender) — for "send it to me"
 }
 
 export async function runTool(
@@ -412,8 +416,15 @@ export async function runTool(
       if (missing.length) {
         return { ok: false, missing_required: missing, message: "Fill the required fields before sending." };
       }
-      const to = normalizePhone(String(input.to_phone));
-      if (!to) return { ok: false, message: "A valid recipient phone number is required." };
+      // "Send it to me" / no recipient → send to the agent's own number.
+      const to = normalizePhone(String(input.to_phone || "")) || ctx.actorPhone || "";
+      if (!to) {
+        return {
+          ok: false,
+          message: "Who should I send it to? Give me a phone number, or say 'send it to me'.",
+        };
+      }
+      const toSelf = !!ctx.actorPhone && to === ctx.actorPhone;
 
       const docName = doc.template_id ? doc.title || "document" : getTemplate(doc.type as DocType).name;
       const link = `${SITE_URL}/api/share/${makeShareToken(docId)}`;
@@ -428,7 +439,7 @@ export async function runTool(
         ok: true,
         to,
         link,
-        message: `Sent the link by text to ${to}.`,
+        message: toSelf ? "Texted it to your phone." : `Sent the link by text to ${to}.`,
       };
     }
 
