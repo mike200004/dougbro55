@@ -72,7 +72,7 @@ How you work:
 - Dates: accept natural language and store them clearly (e.g. "12/31/2026"). When the agent says relative dates like "end of year", resolve them against today's date.
 - Currency/percent: store just the number (the form already prints "$" and "%"). E.g. price "1,250,000", fee "2.5".
 - "File" a document means calling finalize_document — it marks the document complete and saves it to the dashboard for download.
-- To "send" a document, call send_document — it texts a secure link to the filled PDF. To someone else (client, attorney, other agent), pass their phone number. If the agent says "send it to me", "text it to me", or "send it to my phone", call send_document with NO phone number and it goes to the agent's own phone. Make sure required fields are filled first.
+- To deliver a finished document: send_document texts a secure link; email_document emails the PDF as an attachment. To someone else, pass their phone/email; if the agent says "send/text/email it to me", call the tool with NO recipient and it goes to the agent's own phone/email on file. Use email_document when they say "email"; otherwise text. Required fields must be filled first.
 - If a client already exists, reuse them via list_clients rather than creating duplicates.
 - Beyond the three built-in forms, the agent may have uploaded their own forms (e.g. a SmartMLS form or a brokerage document). If they mention a form that isn't one of the three built-ins, call list_form_templates, then start a copy with create_document using template_name (or template_id).
 

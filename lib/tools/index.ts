@@ -17,6 +17,8 @@ import { getTemplate, missingRequired, userFields } from "@/lib/templates";
 import type { DocumentRecord } from "@/lib/types";
 import { makeShareToken } from "@/lib/share";
 import { sendSms } from "@/lib/twilio";
+import { sendEmail } from "@/lib/email";
+import { renderDocument } from "@/lib/pdf/fill";
 import { normalizePhone } from "@/lib/phone";
 import type { DocType } from "@/lib/types";
 
@@ -161,6 +163,20 @@ export const toolSpecs: ToolSpec[] = [
           description: "Recipient's phone number. Omit (or leave blank) to send to the agent themselves.",
         },
         recipient_name: { type: "string", description: "Optional recipient name for the message." },
+      },
+      required: ["document_id"],
+    },
+  },
+  {
+    name: "email_document",
+    description:
+      "Email the completed document as a PDF attachment. Use when the agent says to email it — to someone (give their email), or to THEMSELVES ('email it to me') in which case omit to_email and it goes to the agent's email on file. Required fields must be filled first.",
+    parameters: {
+      type: "object",
+      properties: {
+        document_id: { type: "string" },
+        to_email: { type: "string", description: "Recipient email. Omit to email the agent themselves." },
+        recipient_name: { type: "string", description: "Optional recipient name." },
       },
       required: ["document_id"],
     },
@@ -441,6 +457,41 @@ export async function runTool(
         link,
         message: toSelf ? "Texted it to your phone." : `Sent the link by text to ${to}.`,
       };
+    }
+
+    case "email_document": {
+      const docId = String(input.document_id);
+      const doc = await getDocument(acc, docId);
+      if (!doc) return { error: `Document ${docId} not found` };
+      const eschema = await docSchema(acc, doc);
+      const miss = eschema.missing(doc.fields);
+      if (miss.length) {
+        return { ok: false, missing_required: miss, message: "Fill the required fields before sending." };
+      }
+      if (eschema.uploaded && Object.values(doc.fields).every((v) => !String(v).trim())) {
+        return { ok: false, message: "Fill at least one field before sending." };
+      }
+      let to = String(input.to_email || "").trim();
+      if (!to) to = (await getProfile(acc))?.email || ""; // "email it to me"
+      if (!/.+@.+\..+/.test(to)) {
+        return { ok: false, message: "What email address should I send it to?" };
+      }
+      const { bytes, filename } = await renderDocument(doc);
+      const docName = doc.template_id ? doc.title || "your document" : getTemplate(doc.type as DocType).name;
+      const link = `${SITE_URL}/api/share/${makeShareToken(docId)}`;
+      const who = (input.recipient_name as string)?.trim();
+      const sent = await sendEmail({
+        to,
+        subject: `${docName}${who ? ` for ${who}` : ""}`,
+        html: `<p>${who ? `${who}, here` : "Here"}'s your ${docName}, attached as a PDF.</p><p>You can also <a href="${link}">view it online</a>.</p><p>— Pheme</p>`,
+        attachment: { filename: `${filename}.pdf`, contentBase64: Buffer.from(bytes).toString("base64") },
+      });
+      if (!sent.ok) {
+        return sent.configured
+          ? { ok: false, message: `Couldn't email it: ${sent.error}` }
+          : { ok: false, message: "Email isn't set up yet on this account — I can text you the link instead." };
+      }
+      return { ok: true, to, message: `Emailed it to ${to}.` };
     }
 
     default:

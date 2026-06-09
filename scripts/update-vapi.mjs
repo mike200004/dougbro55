@@ -76,14 +76,23 @@ const tools = [
     properties: { document_id: { type: "string" } },
     required: ["document_id"],
   }),
-  fn("send_document", "Text the completed document to a recipient as a secure download link. All required fields must be filled first. Provide the recipient's phone number.", {
+  fn("send_document", "Text the completed document as a secure download link. To someone else, give their phone; if they say 'text it to me', omit to_phone and it goes to the agent's own phone. Fill required fields first.", {
     type: "object",
     properties: {
       document_id: { type: "string" },
-      to_phone: { type: "string", description: "Recipient's phone number." },
+      to_phone: { type: "string", description: "Recipient's phone. Omit to text the agent themselves." },
       recipient_name: { type: "string", description: "Optional recipient name." },
     },
-    required: ["document_id", "to_phone"],
+    required: ["document_id"],
+  }),
+  fn("email_document", "Email the completed document as a PDF attachment. To someone else, give their email; if they say 'email it to me', omit to_email and it goes to the agent's email on file. Fill required fields first.", {
+    type: "object",
+    properties: {
+      document_id: { type: "string" },
+      to_email: { type: "string", description: "Recipient email. Omit to email the agent themselves." },
+      recipient_name: { type: "string", description: "Optional recipient name." },
+    },
+    required: ["document_id"],
   }),
 ];
 
@@ -99,7 +108,7 @@ Personality (this matters — you sounded robotic before): Sound like a real, fr
 
 Efficiency (important for speed): Minimize tool calls. Do NOT call list_clients or get_agent_profile unless actually needed. Gather the required info first, then create the document ONCE and set ALL fields in a single set_document_fields call, then finalize. Create exactly one document per request — reuse the returned id; never create duplicates. Never invent document ids — use ids returned by tools.
 
-Data: Resolve relative dates against today; store like "12/31/2026". Store currency/percent as just the number (price "1,250,000", fee "2.5"). The broker/agency side auto-fills — never ask for it. "File it" = finalize_document (saves to the dashboard). To "send it", use send_document — it texts a secure link to the PDF. To someone else, give their number; if they say "text it to me" / "send it to my phone", call send_document with NO number and it goes to their own phone. Fill required fields first. When done, confirm in a few words.
+Data: Resolve relative dates against today; store like "12/31/2026". Store currency/percent as just the number (price "1,250,000", fee "2.5"). The broker/agency side auto-fills — never ask for it. "File it" = finalize_document (saves to the dashboard). To deliver it: send_document texts a secure link; email_document emails the PDF. To someone else, give their number/email; if they say "text/email it to me", call the tool with NO recipient and it goes to their own phone/email. Fill required fields first. When done, confirm in a few words.
 
 People you already know on this account (recall and reuse — the instant one is mentioned, say what you remember and offer to reuse it):
 {{memoryDigest}}
