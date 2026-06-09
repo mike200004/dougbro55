@@ -106,8 +106,13 @@ Memory (this is your magic): You already know the people listed above. The insta
 Access: If any tool returns "caller_not_registered", tell the caller their number isn't registered and to sign up at pheme.deals, then end politely. Don't collect any information from unregistered callers.`;
 
 const body = {
-  firstMessage: "",
-  firstMessageMode: "assistant-waits-for-user",
+  // The assistant MUST speak first on a phone call, or the caller just hears
+  // dead air. Keep it to one short, task-focused line (no fluffy greeting).
+  firstMessage: "Which document can I help you with?",
+  firstMessageMode: "assistant-speaks-first",
+  voice: { provider: "openai", voiceId: "alloy" },
+  transcriber: { provider: "deepgram", model: "nova-2", language: "en" },
+  backgroundSound: "off",
   model: {
     provider: "openai",
     model: "gpt-4o-mini",
