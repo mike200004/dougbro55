@@ -1,6 +1,6 @@
 :root {
   /* Marble / navy / gold — matched to the Pheme emblem */
-  --page: #efe9df; /* warm marble cream */
+  --page: #e9e1d8; /* sampled from the emblem's marble so the logo blends seamlessly */
   --surface: #fcfaf5; /* warm white panel */
   --surface-2: #f3eee3;
   --border: #e4dccd;
@@ -445,6 +445,24 @@ button.card:hover {
   text-align: center;
   padding: 56px 0 12px;
 }
+.heroLogo {
+  width: min(440px, 82vw);
+  margin: 0 auto 18px;
+}
+.heroLogo img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.authLogo {
+  width: 200px;
+  margin: 0 auto 18px;
+}
+.authLogo img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
 .brandLockup {
   text-align: center;
   margin-bottom: 18px;
@@ -548,6 +566,63 @@ button.card:hover {
   margin: 56px 0 28px;
 }
 
+/* Steps */
+.steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+}
+.step {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 24px 22px;
+  box-shadow: var(--shadow);
+}
+.stepNum {
+  font-family: var(--font-serif), Georgia, serif;
+  font-weight: 700;
+  font-size: 22px;
+  color: var(--gold);
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--gold);
+  border-radius: 999px;
+  margin-bottom: 14px;
+}
+
+/* Closing CTA band */
+.ctaBand {
+  text-align: center;
+  background: var(--ink);
+  color: #fff;
+  border-radius: 10px;
+  padding: 52px 24px;
+  margin: 64px 0 8px;
+}
+.ctaTitle {
+  color: #fff;
+  font-size: clamp(26px, 3.4vw, 34px);
+}
+.ctaSub {
+  color: #c4cedd;
+  margin: 12px auto 26px;
+  font-size: 17px;
+  max-width: 46ch;
+}
+.ctaButton {
+  background: #fff;
+  color: var(--ink);
+  border-color: #fff;
+}
+.ctaButton:hover {
+  background: var(--gold-tint);
+  border-color: var(--gold-tint);
+}
+
 /* ---------- Footer ---------- */
 .footer {
   flex-shrink: 0;
@@ -617,6 +692,13 @@ button.card:hover {
   }
   .formGrid {
     grid-template-columns: 1fr;
+  }
+  .steps {
+    grid-template-columns: 1fr;
+  }
+  .ctaBand {
+    padding: 40px 20px;
+    margin: 48px 0 4px;
   }
   .footerInner {
     flex-direction: column;

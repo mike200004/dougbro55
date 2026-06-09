@@ -18,9 +18,17 @@ const merriweather = Merriweather({
 });
 
 export const metadata: Metadata = {
-  title: "Pheme — Real Estate Agent Portal",
+  title: "Pheme — Voice that carries.",
   description:
     "Fill, file, and send Connecticut real estate documents by voice, text, or web — with an assistant that remembers your clients.",
+  openGraph: {
+    title: "Pheme — Voice that carries.",
+    description:
+      "The assistant for Connecticut real estate agents. Fill, file, and send your documents by phone, text, or web.",
+    images: ["/pheme-logo.png"],
+    type: "website",
+  },
+  twitter: { card: "summary_large_image", images: ["/pheme-logo.png"] },
 };
 
 export default async function RootLayout({

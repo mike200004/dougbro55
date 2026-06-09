@@ -1,16 +1,20 @@
 import {
   createClient_,
   createDocument,
+  findFormTemplateByName,
   getClient,
   getClientDossier,
   getDocument,
+  getFormTemplate,
   getProfile,
   listClients,
+  listFormTemplates,
   rememberAboutClient,
   rememberParties,
   updateDocument,
 } from "@/lib/db";
 import { getTemplate, missingRequired, userFields } from "@/lib/templates";
+import type { DocumentRecord } from "@/lib/types";
 import { makeShareToken } from "@/lib/share";
 import { sendSms } from "@/lib/twilio";
 import { normalizePhone } from "@/lib/phone";
@@ -79,9 +83,15 @@ export const toolSpecs: ToolSpec[] = [
     },
   },
   {
+    name: "list_form_templates",
+    description:
+      "List the agent's own uploaded form templates (forms they've uploaded, like a SmartMLS form or a brokerage document) that can be filled out. Call this when the agent refers to a form that isn't one of the three built-in types.",
+    parameters: { type: "object", properties: {} },
+  },
+  {
     name: "create_document",
     description:
-      "Start a new document of the given type. Returns the document id, the fields you need to collect (with labels and which are required), and which required fields are still missing. Optionally link a client.",
+      "Start a new document. Use `type` for a built-in CT form, OR `template_name`/`template_id` to start a copy of one of the agent's uploaded forms. Returns the document id and the fields to collect.",
     parameters: {
       type: "object",
       properties: {
@@ -89,12 +99,16 @@ export const toolSpecs: ToolSpec[] = [
           type: "string",
           enum: DOC_TYPES,
           description:
-            "buyer_rep = Exclusive Right to Represent Buyer; purchase = Purchase Agreement; dual_agency = Dual Agency Consent.",
+            "Built-in form: buyer_rep = Exclusive Right to Represent Buyer; purchase = Purchase Agreement; dual_agency = Dual Agency Consent.",
         },
+        template_name: {
+          type: "string",
+          description: "Name of an uploaded form template to copy (use instead of `type`).",
+        },
+        template_id: { type: "string", description: "Id of an uploaded form template (alternative to template_name)." },
         client_id: { type: "string", description: "Optional client to associate." },
         title: { type: "string", description: "Optional title; one is generated if omitted." },
       },
-      required: ["type"],
     },
   },
   {
@@ -166,6 +180,37 @@ function missingLabels(type: DocType, values: Record<string, string>) {
   return keys.map((k) => fields.find((f) => f.key === k)?.label ?? k);
 }
 
+interface DocSchema {
+  validKeys: Set<string>;
+  fields: { key: string; label: string; type: string; required: boolean; options?: string[] }[];
+  missing: (values: Record<string, string>) => string[];
+}
+
+/** Field schema for a document — built-in template OR uploaded form template. */
+async function docSchema(acc: string, doc: DocumentRecord): Promise<DocSchema> {
+  if (doc.template_id) {
+    const tpl = await getFormTemplate(acc, doc.template_id);
+    const fields = (tpl?.fields ?? []).map((f) => ({
+      key: f.key,
+      label: f.label,
+      type: f.type,
+      required: false,
+      options: f.options,
+    }));
+    return {
+      validKeys: new Set(fields.map((f) => f.key)),
+      fields,
+      missing: () => [], // uploaded forms have no required-field metadata
+    };
+  }
+  const type = doc.type as DocType;
+  return {
+    validKeys: new Set(userFields(type).filter((f) => !f.source).map((f) => f.key)),
+    fields: fieldSchemaFor(type),
+    missing: (values) => missingLabels(type, values),
+  };
+}
+
 export interface ToolContext {
   accountId: string;
   actorId?: string; // who is acting (owner or assistant member id)
@@ -223,6 +268,26 @@ export async function runTool(
     }
 
     case "create_document": {
+      // Copy of an uploaded form template?
+      const templateRef = (input.template_id as string) || (input.template_name as string);
+      if (templateRef) {
+        const tpl = input.template_id
+          ? await getFormTemplate(acc, String(input.template_id))
+          : await findFormTemplateByName(acc, String(input.template_name));
+        if (!tpl) {
+          return { error: `No uploaded form matching "${templateRef}". Use list_form_templates to see what's available.` };
+        }
+        const doc = await createDocument(acc, {
+          type: "uploaded",
+          template_id: tpl.id,
+          title: (input.title as string) || `${tpl.name} (new)`,
+          client_id: (input.client_id as string) ?? null,
+          created_by: ctx.actorId ?? null,
+        });
+        const schema = await docSchema(acc, doc);
+        return { document_id: doc.id, template: tpl.name, title: doc.title, fields: schema.fields, missing_required: [] };
+      }
+
       const type = input.type as DocType;
       if (!DOC_TYPES.includes(type)) return { error: `Unknown document type: ${type}` };
       const tpl = getTemplate(type);
@@ -246,17 +311,21 @@ export async function runTool(
       };
     }
 
+    case "list_form_templates": {
+      const tpls = await listFormTemplates(acc);
+      return tpls.map((t) => ({ id: t.id, name: t.name, field_count: t.fields.length }));
+    }
+
     case "set_document_fields": {
       const docId = String(input.document_id);
       const doc = await getDocument(acc, docId);
       if (!doc) return { error: `Document ${docId} not found` };
-      const tpl = getTemplate(doc.type);
-      const valid = new Set(tpl.fields.filter((f) => !f.source).map((f) => f.key));
+      const schema = await docSchema(acc, doc);
       const incoming = (input.fields as Record<string, string>) ?? {};
       const accepted: Record<string, string> = {};
       const rejected: string[] = [];
       for (const [k, v] of Object.entries(incoming)) {
-        if (valid.has(k)) accepted[k] = String(v);
+        if (schema.validKeys.has(k)) accepted[k] = String(v);
         else rejected.push(k);
       }
       const updated = await updateDocument(acc, docId, { fields: accepted });
@@ -265,7 +334,7 @@ export async function runTool(
         document_id: docId,
         updated_fields: Object.keys(accepted),
         rejected_unknown_keys: rejected,
-        missing_required: missingLabels(doc.type, updated.fields),
+        missing_required: schema.missing(updated.fields),
       };
     }
 
@@ -273,14 +342,15 @@ export async function runTool(
       const docId = String(input.document_id);
       const doc = await getDocument(acc, docId);
       if (!doc) return { error: `Document ${docId} not found` };
+      const schema = await docSchema(acc, doc);
       return {
         document_id: doc.id,
         type: doc.type,
         title: doc.title,
         status: doc.status,
         values: doc.fields,
-        fields: fieldSchemaFor(doc.type),
-        missing_required: missingLabels(doc.type, doc.fields),
+        fields: schema.fields,
+        missing_required: schema.missing(doc.fields),
       };
     }
 
@@ -288,7 +358,7 @@ export async function runTool(
       const docId = String(input.document_id);
       const doc = await getDocument(acc, docId);
       if (!doc) return { error: `Document ${docId} not found` };
-      const missing = missingLabels(doc.type, doc.fields);
+      const missing = (await docSchema(acc, doc)).missing(doc.fields);
       if (missing.length) {
         return {
           ok: false,
@@ -310,17 +380,17 @@ export async function runTool(
       const docId = String(input.document_id);
       const doc = await getDocument(acc, docId);
       if (!doc) return { error: `Document ${docId} not found` };
-      const missing = missingLabels(doc.type, doc.fields);
+      const missing = (await docSchema(acc, doc)).missing(doc.fields);
       if (missing.length) {
         return { ok: false, missing_required: missing, message: "Fill the required fields before sending." };
       }
       const to = normalizePhone(String(input.to_phone));
       if (!to) return { ok: false, message: "A valid recipient phone number is required." };
 
-      const tpl = getTemplate(doc.type);
+      const docName = doc.template_id ? doc.title || "document" : getTemplate(doc.type as DocType).name;
       const link = `${SITE_URL}/api/share/${makeShareToken(docId)}`;
       const who = (input.recipient_name as string)?.trim();
-      const body = `${who ? who + ", " : ""}here is your ${tpl.name}: ${link}`;
+      const body = `${who ? who + ", " : ""}here is your ${docName}: ${link}`;
 
       const sent = await sendSms(to, body);
       if (!sent.ok) {
@@ -330,7 +400,7 @@ export async function runTool(
         ok: true,
         to,
         link,
-        message: `Sent the ${tpl.shortName} link by text to ${to}.`,
+        message: `Sent the link by text to ${to}.`,
       };
     }
 

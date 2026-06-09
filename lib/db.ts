@@ -1,5 +1,13 @@
 import { admin } from "@/lib/supabase/admin";
-import type { AgentProfile, Client, DocumentRecord, DocType } from "@/lib/types";
+import type {
+  AgentProfile,
+  Client,
+  DocumentRecord,
+  DocumentType,
+  DocType,
+  FormTemplate,
+  FormTemplateField,
+} from "@/lib/types";
 
 /**
  * All data access, scoped by account (the auth user id). Uses the service-role
@@ -328,7 +336,7 @@ export async function rememberParties(accountId: string, doc: DocumentRecord): P
 }
 
 export interface Deal {
-  type: DocType;
+  type: DocumentType;
   property: string;
   status: string;
   date: string;
@@ -475,6 +483,72 @@ export async function latestDraft(
   return ageMin <= withinMinutes ? (data as DocumentRecord) : null;
 }
 
+// ---------------------------------------------------------------------------
+// Uploaded form templates (reusable)
+// ---------------------------------------------------------------------------
+
+export async function createFormTemplate(
+  accountId: string,
+  input: {
+    name: string;
+    kind: "acroform" | "overlay";
+    storage_path: string;
+    fields: FormTemplateField[];
+    created_by?: string | null;
+  },
+): Promise<FormTemplate> {
+  const { data, error } = await admin()
+    .from("form_templates")
+    .insert({
+      account_id: accountId,
+      name: input.name,
+      kind: input.kind,
+      storage_path: input.storage_path,
+      fields: input.fields,
+      created_by: input.created_by ?? null,
+    })
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+  return data as FormTemplate;
+}
+
+export async function listFormTemplates(accountId: string): Promise<FormTemplate[]> {
+  const { data } = await admin()
+    .from("form_templates")
+    .select("*")
+    .eq("account_id", accountId)
+    .order("created_at", { ascending: false });
+  return (data as FormTemplate[]) ?? [];
+}
+
+export async function getFormTemplate(
+  accountId: string,
+  templateId: string,
+): Promise<FormTemplate | null> {
+  const { data } = await admin()
+    .from("form_templates")
+    .select("*")
+    .eq("account_id", accountId)
+    .eq("id", templateId)
+    .maybeSingle();
+  return (data as FormTemplate) ?? null;
+}
+
+/** Find a template by fuzzy name (for "start a copy of …" over voice/SMS). */
+export async function findFormTemplateByName(
+  accountId: string,
+  name: string,
+): Promise<FormTemplate | null> {
+  const all = await listFormTemplates(accountId);
+  const n = normName(name);
+  return (
+    all.find((t) => normName(t.name) === n) ||
+    all.find((t) => normName(t.name).includes(n) || n.includes(normName(t.name))) ||
+    null
+  );
+}
+
 /** Fetch a document by id without account scoping (for token-authorized share links). */
 export async function getDocumentById(docId: string): Promise<DocumentRecord | null> {
   const { data } = await admin().from("documents").select("*").eq("id", docId).maybeSingle();
@@ -484,11 +558,12 @@ export async function getDocumentById(docId: string): Promise<DocumentRecord | n
 export async function createDocument(
   accountId: string,
   input: {
-    type: DocType;
+    type: DocumentType;
     title: string;
     client_id?: string | null;
     fields?: Record<string, string>;
     created_by?: string | null;
+    template_id?: string | null;
   },
 ): Promise<DocumentRecord> {
   const { data, error } = await admin()
@@ -501,6 +576,7 @@ export async function createDocument(
       status: "draft",
       fields: input.fields ?? {},
       created_by: input.created_by ?? null,
+      template_id: input.template_id ?? null,
     })
     .select()
     .single();

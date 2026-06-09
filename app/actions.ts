@@ -1,11 +1,14 @@
 "use server";
 
+import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import {
   createClient_,
   createDocument,
+  createFormTemplate,
   getDocument,
+  getFormTemplate,
   insertMember,
   removeMember,
   saveProfile,
@@ -17,6 +20,8 @@ import { requireAccount, getSessionUser } from "@/lib/auth";
 import { normalizePhone } from "@/lib/phone";
 import { makeShareToken } from "@/lib/share";
 import { sendSms } from "@/lib/twilio";
+import { uploadTemplateFile } from "@/lib/storage";
+import { detectAcroFields } from "@/lib/pdf/fill";
 import { getTemplate, missingRequired } from "@/lib/templates";
 import type { AgentProfile, DocType } from "@/lib/types";
 
@@ -208,8 +213,13 @@ export async function saveDocumentFieldsAction(docId: string, formData: FormData
   const { accountId } = await requireAccount();
   const doc = await getDocument(accountId, docId);
   if (!doc) return;
-  const tpl = getTemplate(doc.type);
-  const valid = tpl.fields.filter((f) => !f.source).map((f) => f.key);
+  let valid: string[];
+  if (doc.template_id) {
+    const ft = await getFormTemplate(accountId, doc.template_id);
+    valid = (ft?.fields ?? []).map((f) => f.key);
+  } else {
+    valid = getTemplate(doc.type as DocType).fields.filter((f) => !f.source).map((f) => f.key);
+  }
   const fields: Record<string, string> = {};
   for (const key of valid) fields[key] = String(formData.get(key) ?? "");
   await updateDocument(accountId, docId, {
@@ -220,6 +230,54 @@ export async function saveDocumentFieldsAction(docId: string, formData: FormData
   revalidatePath("/");
 }
 
+export async function uploadFormAction(formData: FormData): Promise<ActionResult> {
+  const { accountId, userId } = await requireAccount();
+  const file = formData.get("file") as File | null;
+  if (!file || file.size === 0) return { ok: false, error: "Choose a PDF to upload." };
+  if (file.type && !/pdf/i.test(file.type)) return { ok: false, error: "Please upload a PDF." };
+
+  const bytes = Buffer.from(await file.arrayBuffer());
+  let acroFields;
+  try {
+    acroFields = await detectAcroFields(bytes);
+  } catch {
+    return { ok: false, error: "Couldn't read that PDF. Make sure it's a valid form." };
+  }
+  if (!acroFields.length) {
+    return {
+      ok: false,
+      error:
+        "This PDF has no fillable fields yet. Flat/scanned form support is coming soon — for now, upload a fillable (AcroForm) PDF.",
+    };
+  }
+
+  const name = (String(formData.get("name") || "").trim() || file.name.replace(/\.pdf$/i, "")) || "Uploaded form";
+  const storagePath = `${accountId}/${randomUUID()}.pdf`;
+  await uploadTemplateFile(storagePath, bytes);
+  await createFormTemplate(accountId, {
+    name,
+    kind: "acroform",
+    storage_path: storagePath,
+    fields: acroFields,
+    created_by: userId,
+  });
+  revalidatePath("/");
+  return { ok: true };
+}
+
+export async function startFromTemplateAction(templateId: string) {
+  const { accountId, userId } = await requireAccount();
+  const ft = await getFormTemplate(accountId, templateId);
+  if (!ft) return;
+  const doc = await createDocument(accountId, {
+    type: "uploaded",
+    template_id: ft.id,
+    title: `${ft.name} (new)`,
+    created_by: userId,
+  });
+  redirect(`/documents/${doc.id}`);
+}
+
 export async function sendDocumentAction(
   docId: string,
   toPhone: string,
@@ -228,15 +286,16 @@ export async function sendDocumentAction(
   const { accountId } = await requireAccount();
   const doc = await getDocument(accountId, docId);
   if (!doc) return { ok: false, error: "Document not found." };
-  const missing = missingRequired(doc.type, doc.fields);
-  if (missing.length) return { ok: false, error: "Fill the required fields before sending." };
+  if (!doc.template_id && missingRequired(doc.type as DocType, doc.fields).length) {
+    return { ok: false, error: "Fill the required fields before sending." };
+  }
   const to = normalizePhone(toPhone);
   if (!to) return { ok: false, error: "Enter a valid recipient phone number." };
 
-  const tpl = getTemplate(doc.type);
+  const docName = doc.template_id ? doc.title || "document" : getTemplate(doc.type as DocType).name;
   const link = `${SEND_SITE_URL}/api/share/${makeShareToken(docId)}`;
   const who = recipientName?.trim();
-  const body = `${who ? who + ", " : ""}here is your ${tpl.name}: ${link}`;
+  const body = `${who ? who + ", " : ""}here is your ${docName}: ${link}`;
   const sent = await sendSms(to, body);
   if (!sent.ok) return { ok: false, error: sent.error || "Could not send the text." };
   return { ok: true };
@@ -246,7 +305,7 @@ export async function setDocumentStatusAction(docId: string, complete: boolean) 
   const { accountId } = await requireAccount();
   const doc = await getDocument(accountId, docId);
   if (!doc) return;
-  if (complete && missingRequired(doc.type, doc.fields).length > 0) return;
+  if (complete && !doc.template_id && missingRequired(doc.type as DocType, doc.fields).length > 0) return;
   await updateDocument(accountId, docId, { status: complete ? "completed" : "draft" });
   revalidatePath(`/documents/${docId}`);
   revalidatePath("/");
