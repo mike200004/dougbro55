@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDocument, getProfile } from "@/lib/db";
+import { getDocument } from "@/lib/db";
 import { getAccount } from "@/lib/auth";
-import { fillDocument } from "@/lib/pdf/fill";
-import { getTemplate } from "@/lib/templates";
+import { renderDocument } from "@/lib/pdf/fill";
 
 export const runtime = "nodejs";
 
@@ -21,15 +20,12 @@ export async function GET(
     return NextResponse.json({ error: "Document not found" }, { status: 404 });
   }
 
-  const profile = await getProfile(account.accountId);
-  const bytes = await fillDocument(doc.type, doc.fields, profile);
-  const tpl = getTemplate(doc.type);
-  const safeTitle = (doc.title || tpl.shortName).replace(/[^a-z0-9]+/gi, "-");
+  const { bytes, filename } = await renderDocument(doc);
 
   return new NextResponse(Buffer.from(bytes), {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `inline; filename="${safeTitle}.pdf"`,
+      "Content-Disposition": `inline; filename="${filename}.pdf"`,
       "Cache-Control": "no-store",
     },
   });

@@ -27,10 +27,33 @@ export interface Client {
   created_at: string;
 }
 
+export interface FormTemplateField {
+  key: string;
+  label: string;
+  type: "text" | "checkbox" | "dropdown";
+  acro_name?: string;
+  options?: string[];
+  placement?: { page: number; x: number; y: number; size?: number; maxWidth?: number };
+}
+
+export interface FormTemplate {
+  id: string;
+  account_id: string;
+  name: string;
+  kind: "acroform" | "overlay";
+  storage_path: string;
+  fields: FormTemplateField[];
+  created_by: string | null;
+  created_at: string;
+}
+
+export type DocumentType = DocType | "uploaded";
+
 export interface DocumentRecord {
   id: string;
   account_id: string;
-  type: DocType;
+  type: DocumentType;
+  template_id: string | null;
   client_id: string | null;
   title: string;
   status: DocStatus;

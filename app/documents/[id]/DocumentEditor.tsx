@@ -13,6 +13,7 @@ interface FieldDef {
   type: string;
   required: boolean;
   hint: string | null;
+  options?: string[] | null;
 }
 
 export default function DocumentEditor({
@@ -68,6 +69,28 @@ export default function DocumentEditor({
                   value={vals[f.key] ?? ""}
                   onChange={(e) => update(f.key, e.target.value)}
                 />
+              ) : f.type === "dropdown" ? (
+                <select
+                  className="input"
+                  name={f.key}
+                  value={vals[f.key] ?? ""}
+                  onChange={(e) => update(f.key, e.target.value)}
+                >
+                  <option value="">—</option>
+                  {(f.options ?? []).map((o) => (
+                    <option key={o} value={o}>{o}</option>
+                  ))}
+                </select>
+              ) : f.type === "checkbox" ? (
+                <select
+                  className="input"
+                  name={f.key}
+                  value={vals[f.key] ?? ""}
+                  onChange={(e) => update(f.key, e.target.value)}
+                >
+                  <option value="">No</option>
+                  <option value="Yes">Yes</option>
+                </select>
               ) : (
                 <input
                   className="input"

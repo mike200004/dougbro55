@@ -47,14 +47,16 @@ const tools = [
     },
     required: ["full_name"],
   }),
-  fn("create_document", "Start a new document. Returns the document id, the fields to collect, and which required fields are missing.", {
+  fn("list_form_templates", "List the agent's own uploaded forms (e.g. a SmartMLS form or a brokerage document) that can be filled. Call this when the agent refers to a form that isn't one of the three built-in types.", { type: "object", properties: {} }),
+  fn("create_document", "Start a new document. Use `type` for a built-in CT form, OR `template_name`/`template_id` to start a copy of one of the agent's uploaded forms.", {
     type: "object",
     properties: {
-      type: { type: "string", enum: ["buyer_rep", "purchase", "dual_agency"], description: "buyer_rep = Exclusive Right to Represent Buyer; purchase = Purchase Agreement; dual_agency = Dual Agency Consent." },
+      type: { type: "string", enum: ["buyer_rep", "purchase", "dual_agency"], description: "Built-in: buyer_rep = Exclusive Right to Represent Buyer; purchase = Purchase Agreement; dual_agency = Dual Agency Consent." },
+      template_name: { type: "string", description: "Name of an uploaded form to copy (use instead of type)." },
+      template_id: { type: "string", description: "Id of an uploaded form (alternative to template_name)." },
       client_id: { type: "string", description: "Optional client to associate." },
       title: { type: "string" },
     },
-    required: ["type"],
   }),
   fn("set_document_fields", "Set/update field values on a document. Returns remaining required fields.", {
     type: "object",

@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { getProfile, listClients, listDocuments, memberNames } from "@/lib/db";
+import { getProfile, listClients, listDocuments, listFormTemplates, memberNames } from "@/lib/db";
 import { templateList, getTemplate } from "@/lib/templates";
 import { getAccount } from "@/lib/auth";
-import { newDocumentAction } from "./actions";
+import { newDocumentAction, startFromTemplateAction } from "./actions";
 import AddClient from "./AddClient";
+import UploadForm from "./UploadForm";
 import Landing from "./Landing";
 
 export const dynamic = "force-dynamic";
@@ -17,11 +18,12 @@ export default async function Home() {
   const account = await getAccount();
   if (!account) return <Landing />;
   const { accountId } = account;
-  const [profile, clients, documents, names] = await Promise.all([
+  const [profile, clients, documents, names, forms] = await Promise.all([
     getProfile(accountId),
     listClients(accountId),
     listDocuments(accountId),
     memberNames(accountId),
+    listFormTemplates(accountId),
   ]);
 
   return (
@@ -61,18 +63,46 @@ export default async function Home() {
       </section>
 
       <section>
+        <h2 className="sectionTitle">Your forms</h2>
+        <p className="pageSub" style={{ marginTop: 0, marginBottom: 14, fontSize: 14 }}>
+          Upload a fillable PDF — a SmartMLS form, a brokerage document, a disclosure — and
+          Pheme detects its fields so you can fill it by web, voice, or text. Uploaded forms
+          are saved here to reuse.
+        </p>
+        {forms.length > 0 && (
+          <div className="grid" style={{ marginBottom: 16 }}>
+            {forms.map((f) => (
+              <form key={f.id} action={startFromTemplateAction.bind(null, f.id)}>
+                <button
+                  type="submit"
+                  className="card"
+                  style={{ width: "100%", textAlign: "left", cursor: "pointer", color: "var(--text)", font: "inherit" }}
+                >
+                  <div className="cardKicker">Uploaded form</div>
+                  <div className="cardTitle">{f.name}</div>
+                  <div className="cardBody">{f.fields.length} fields · start a copy</div>
+                </button>
+              </form>
+            ))}
+          </div>
+        )}
+        <UploadForm />
+      </section>
+
+      <section>
         <h2 className="sectionTitle">Recent documents</h2>
         {documents.length === 0 ? (
           <p className="muted">No documents yet. Start one above or ask the assistant.</p>
         ) : (
           documents.slice(0, 8).map((doc) => {
-            const tpl = getTemplate(doc.type);
+            const kind = doc.type === "uploaded" ? "Uploaded form" : getTemplate(doc.type).shortName;
+            const fallback = doc.type === "uploaded" ? "Uploaded form" : getTemplate(doc.type).name;
             return (
               <Link key={doc.id} href={`/documents/${doc.id}`} className="row" style={{ textDecoration: "none" }}>
                 <div>
-                  <div className="rowMain">{doc.title || tpl.name}</div>
+                  <div className="rowMain">{doc.title || fallback}</div>
                   <div className="rowSub">
-                    {tpl.shortName} · updated {new Date(doc.updated_at).toLocaleDateString()}
+                    {kind} · updated {new Date(doc.updated_at).toLocaleDateString()}
                     {doc.created_by && names[doc.created_by] ? ` · by ${names[doc.created_by]}` : ""}
                   </div>
                 </div>
