@@ -17,7 +17,7 @@ import {
 import { logActivity } from "@/lib/activity";
 import { requestSignature } from "@/lib/signing";
 import { getPlan, UPGRADE_MESSAGE } from "@/lib/billing";
-import { getTemplate, missingRequired, userFields } from "@/lib/templates";
+import { getTemplate, missingRequired, templateList, userFields } from "@/lib/templates";
 import type { DocumentRecord } from "@/lib/types";
 import { makeShareToken } from "@/lib/share";
 import { sendSms } from "@/lib/twilio";
@@ -26,7 +26,10 @@ import { renderDocument } from "@/lib/pdf/fill";
 import { normalizePhone } from "@/lib/phone";
 import type { DocType } from "@/lib/types";
 
-const DOC_TYPES: DocType[] = ["buyer_rep", "purchase", "dual_agency"];
+const DOC_TYPES: DocType[] = templateList.map((t) => t.id);
+const DOC_TYPE_GUIDE = templateList
+  .map((t) => `${t.id} = ${t.name}`)
+  .join("; ");
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://pheme.deals";
 
 /** Provider-neutral tool spec. `parameters` is a JSON Schema. */
@@ -91,21 +94,20 @@ export const toolSpecs: ToolSpec[] = [
   {
     name: "list_form_templates",
     description:
-      "List the agent's own uploaded form templates (forms they've uploaded, like a SmartMLS form or a brokerage document) that can be filled out. Call this when the agent refers to a form that isn't one of the three built-in types.",
+      "List the agent's own uploaded form templates (forms they've uploaded, like a SmartMLS form or a brokerage document) that can be filled out. Call this when the agent refers to a form that isn't in the built-in library.",
     parameters: { type: "object", properties: {} },
   },
   {
     name: "create_document",
     description:
-      "Start a new document. Use `type` for a built-in CT form, OR `template_name`/`template_id` to start a copy of one of the agent's uploaded forms. Returns the document id and the fields to collect.",
+      "Start a new document. Use `type` for a document from the built-in library, OR `template_name`/`template_id` to start a copy of one of the agent's uploaded forms. Returns the document id and the fields to collect.",
     parameters: {
       type: "object",
       properties: {
         type: {
           type: "string",
           enum: DOC_TYPES,
-          description:
-            "Built-in form: buyer_rep = Exclusive Right to Represent Buyer; purchase = Purchase Agreement; dual_agency = Dual Agency Consent.",
+          description: `Built-in library: ${DOC_TYPE_GUIDE}.`,
         },
         template_name: {
           type: "string",

@@ -208,10 +208,11 @@ function normName(s: string | null | undefined): string {
   return (s ?? "").toLowerCase().replace(/\s+/g, " ").trim();
 }
 
-// Field keys differ by template: dual_agency/purchase use buyerName/sellerName/
-// propertyAddress; buyer_rep uses buyerNames/propertyDescription (no seller).
+// Field keys differ by template: most use buyerName/sellerName/propertyAddress;
+// buyer_rep uses buyerNames/propertyDescription (no seller); the rental
+// application's applicant is the buyer-side party.
 function docBuyer(f?: Record<string, string> | null): string {
-  return f?.buyerName || f?.buyerNames || "";
+  return f?.buyerName || f?.buyerNames || f?.applicantName || "";
 }
 function docSeller(f?: Record<string, string> | null): string {
   return f?.sellerName || "";

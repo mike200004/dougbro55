@@ -21,8 +21,12 @@ const STEPS = [
 
 const FAQ = [
   {
-    q: "What forms can Pheme fill?",
-    a: "Three Connecticut staples are built in (SmartMLS purchase agreement, buyer representation, dual agency consent) — and you can upload any of your own PDFs. Fillable forms are read automatically; flat or scanned forms get AI field detection you can fine-tune once, then reuse forever.",
+    q: "What documents can Pheme fill?",
+    a: "Thirteen are built in — listing agreements, purchase agreements, buyer representation, dual agency consent, addenda, escalation clauses, mutual releases, deposit receipts, lead-paint disclosures, rental applications, plus broker paperwork like referral fee agreements, commission disbursement authorizations (CDAs), and independent contractor agreements. And you can upload any of your own PDFs: fillable forms are read automatically; flat or scanned forms get AI field detection you fine-tune once, then reuse forever.",
+  },
+  {
+    q: "Is Pheme for agents or brokerages?",
+    a: "Both. Agents use it to fill and file deal paperwork hands-free. Brokerages run office paperwork through it too — CDAs, referral fees, contractor agreements for new salespeople — with team accounts, an activity log of who did what, and e-sign certificates on every executed document.",
   },
   {
     q: "How does the phone assistant know it's me?",
@@ -44,8 +48,12 @@ const FAQ = [
 
 const FEATURES = [
   {
+    title: "A real document library",
+    body: "Thirteen ready-to-fill documents — listings, purchase agreements, addenda, releases, disclosures, rental applications, plus broker paperwork like CDAs, referral fees, and contractor agreements.",
+  },
+  {
     title: "Any document — not just templates",
-    body: "Upload a SmartMLS purchase agreement, a buyer rep, a listing form, a disclosure, or your brokerage’s own paperwork. Pheme reads it and fills it out.",
+    body: "Upload a SmartMLS form, a disclosure, or your brokerage’s own paperwork. Pheme reads it and fills it out — and your whole team can reuse it.",
   },
   {
     title: "Hands-free, from anywhere",
@@ -73,6 +81,21 @@ const FEATURES = [
   },
 ];
 
+const BROKER_POINTS = [
+  {
+    title: "The office paperwork, handled",
+    body: "Commission disbursement authorizations, broker-to-broker referral fees, independent contractor agreements for new salespeople — dictated from anywhere, filed in seconds.",
+  },
+  {
+    title: "Your whole office, one assistant",
+    body: "Every agent and assistant gets their own login and registered phone. Work lands in the right account, and the activity log shows exactly who did what, when.",
+  },
+  {
+    title: "A paper trail you can stand behind",
+    body: "Every e-signature ships with a certificate page — signer, timestamp, IP, and a cryptographic fingerprint of the document — attached to the executed PDF of record.",
+  },
+];
+
 export default function Landing() {
   return (
     <div>
@@ -88,9 +111,9 @@ export default function Landing() {
         </div>
         <h1 className="heroTitle">Real estate paperwork, off your plate.</h1>
         <p className="heroSub">
-          Upload any document — a SmartMLS purchase agreement, a buyer rep, a disclosure —
-          and Pheme fills it out for you by voice, text, or web. Built for Connecticut
-          agents who’d rather be selling than typing.
+          From listing agreements to commission disbursements — Pheme fills, files, sends,
+          and gets your documents signed, by voice, text, or web. Built for agents and
+          brokerages that would rather be doing deals than typing.
         </p>
         <div className="heroCtas">
           <Link href="/signup" className="btn btnPrimary btnLg">
@@ -128,6 +151,16 @@ export default function Landing() {
         ))}
       </div>
 
+      <h2 className="sectionHeading">Built for brokerages, too</h2>
+      <div className="steps">
+        {BROKER_POINTS.map((p) => (
+          <div className="step" key={p.title}>
+            <div className="featureTitle">{p.title}</div>
+            <div className="featureBody">{p.body}</div>
+          </div>
+        ))}
+      </div>
+
       <h2 className="sectionHeading">Simple pricing</h2>
       <div className="card" style={{ maxWidth: 560, margin: "0 auto", textAlign: "center", padding: 32 }}>
         <div className="cardKicker">Early access</div>
@@ -155,7 +188,7 @@ export default function Landing() {
       <section className="ctaBand">
         <h2 className="ctaTitle">Stop typing forms in the car.</h2>
         <p className="ctaSub">
-          Join the Connecticut agents who let Pheme handle the paperwork.
+          Join the agents and brokerages who let Pheme handle the paperwork.
         </p>
         <Link href="/signup" className="btn btnLg ctaButton">
           Create your account

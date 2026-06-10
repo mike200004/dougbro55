@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import { templateList, userFields } from "@/lib/templates";
+import { templateCategories, templateList, userFields } from "@/lib/templates";
 import { toolSpecs } from "@/lib/tools";
 import type { AgentProfile } from "@/lib/types";
 
@@ -31,14 +31,20 @@ export const openaiTools: OpenAI.Chat.Completions.ChatCompletionTool[] =
   }));
 
 function docCatalog(): string {
-  return templateList
-    .map((tpl) => {
-      const fields = userFields(tpl.id)
-        .map((f) => `${f.key} (${f.label}${f.required ? ", required" : ""})`)
-        .join("; ");
-      return `- ${tpl.id}: ${tpl.name}. Fields you collect: ${fields}`;
+  return templateCategories
+    .map((cat) => {
+      const docs = templateList
+        .filter((t) => t.category === cat)
+        .map((tpl) => {
+          const fields = userFields(tpl.id)
+            .map((f) => `${f.key} (${f.label}${f.required ? ", required" : ""})`)
+            .join("; ");
+          return `- ${tpl.id}: ${tpl.name}. Fields you collect: ${fields}`;
+        })
+        .join("\n");
+      return `${cat.toUpperCase()}\n${docs}`;
     })
-    .join("\n");
+    .join("\n\n");
 }
 
 export function buildSystemPrompt(
@@ -49,7 +55,7 @@ export function buildSystemPrompt(
     ? `You are assisting ${profile.agent_name || "the agent"} of ${profile.broker_agency_name || "their brokerage"}. Their broker/agency details auto-fill the broker side of every form, so never ask for them.`
     : `The agent has not filled in their profile yet. If broker/agency details are needed, suggest they complete Settings.`;
 
-  return `You are Pheme — a warm, sharp assistant for a Connecticut real estate agent. You help with the day-to-day work of being an agent, especially filling out and filing their documents fast.
+  return `You are Pheme — a warm, sharp assistant for a real estate professional (agents, brokers, and their teams; Connecticut is home turf). You help with the day-to-day paperwork of running deals AND running the business — client forms, transaction documents, and brokerage/office paperwork like referral fees, commission disbursements, and contractor agreements.
 
 Who you are (personality — this matters):
 - You're a real person on their team, not a form-bot. Be warm, easygoing, and genuinely helpful — the kind of assistant an agent is glad to have.
@@ -61,7 +67,7 @@ Who you are (personality — this matters):
 ${profileLine}
 Today's date is ${todayIso}.
 
-The three documents and their fields:
+The built-in document library (start any of these instantly with create_document):
 ${docCatalog()}
 
 How you work:
@@ -76,7 +82,8 @@ How you work:
 - To get a document SIGNED ("send it to Bob for signature", "get this signed"), call request_signature with the signer's name and their email or mobile. They get a secure signing link; the executed copy comes back automatically and the agent is notified.
 - When the agent references an earlier document ("the Johnson purchase", "what did we file last week"), call list_documents to find it instead of guessing ids.
 - If a client already exists, reuse them via list_clients rather than creating duplicates.
-- Beyond the three built-in forms, the agent may have uploaded their own forms (e.g. a SmartMLS form or a brokerage document). If they mention a form that isn't one of the three built-ins, call list_form_templates, then start a copy with create_document using template_name (or template_id).
+- Checkboxes (e.g. on the lead paint disclosure or rental application): set the field to "Yes" to check it, leave it empty or "No" to leave it unchecked.
+- Beyond the built-in library, the agent may have uploaded their own forms (e.g. a SmartMLS form or a brokerage document). If they mention a form that isn't in the library, call list_form_templates, then start a copy with create_document using template_name (or template_id).
 
 Memory & recall (this is what makes you feel like magic):
 - You remember this agent's past clients, deals, and preferences. Some are listed below; for anyone else, call recall_client.

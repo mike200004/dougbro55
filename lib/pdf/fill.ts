@@ -40,6 +40,35 @@ export async function fillDocument(
 ): Promise<Uint8Array> {
   const tpl = getTemplate(type);
   const bytes = await fs.readFile(path.join(process.cwd(), tpl.file));
+
+  // Generated library documents carry embedded form fields named after the
+  // schema keys — fill by name and flatten.
+  if (tpl.kind === "acroform") {
+    const pdf = await PDFDocument.load(bytes);
+    const form = pdf.getForm();
+    for (const field of tpl.fields) {
+      const value = field.source
+        ? profile?.[field.source] ?? ""
+        : fields[field.key] ?? "";
+      const v = String(value).trim();
+      if (!v) continue;
+      try {
+        if (field.type === "checkbox") {
+          const cb = form.getCheckBox(field.key);
+          if (CHECK_TRUTHY.test(v)) cb.check();
+          else cb.uncheck();
+        } else {
+          form.getTextField(field.key).setText(v);
+        }
+      } catch {
+        // Schema/PDF mismatch on one field — leave it blank rather than fail.
+      }
+    }
+    form.updateFieldAppearances(await pdf.embedFont(StandardFonts.Helvetica));
+    form.flatten();
+    return pdf.save();
+  }
+
   const pdf = await PDFDocument.load(bytes);
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const pages = pdf.getPages();

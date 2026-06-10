@@ -1,6 +1,19 @@
 // Core domain types shared across the app.
 
-export type DocType = "buyer_rep" | "purchase" | "dual_agency";
+export type DocType =
+  | "buyer_rep"
+  | "purchase"
+  | "dual_agency"
+  | "listing_agreement"
+  | "general_addendum"
+  | "escalation_addendum"
+  | "mutual_release"
+  | "deposit_receipt"
+  | "referral_agreement"
+  | "commission_disbursement"
+  | "independent_contractor"
+  | "lead_paint_disclosure"
+  | "rental_application";
 
 export type DocStatus = "draft" | "completed";
 

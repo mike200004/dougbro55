@@ -47,11 +47,21 @@ const tools = [
     },
     required: ["full_name"],
   }),
-  fn("list_form_templates", "List the agent's own uploaded forms (e.g. a SmartMLS form or a brokerage document) that can be filled. Call this when the agent refers to a form that isn't one of the three built-in types.", { type: "object", properties: {} }),
-  fn("create_document", "Start a new document. Use `type` for a built-in CT form, OR `template_name`/`template_id` to start a copy of one of the agent's uploaded forms.", {
+  fn("list_form_templates", "List the agent's own uploaded forms (e.g. a SmartMLS form or a brokerage document) that can be filled. Call this when the agent refers to a form that isn't in the built-in library.", { type: "object", properties: {} }),
+  fn("create_document", "Start a new document. Use `type` for a document from the built-in library, OR `template_name`/`template_id` to start a copy of one of the agent's uploaded forms. Returns the fields to collect.", {
     type: "object",
     properties: {
-      type: { type: "string", enum: ["buyer_rep", "purchase", "dual_agency"], description: "Built-in: buyer_rep = Exclusive Right to Represent Buyer; purchase = Purchase Agreement; dual_agency = Dual Agency Consent." },
+      type: {
+        type: "string",
+        enum: [
+          "buyer_rep", "purchase", "dual_agency",
+          "listing_agreement", "general_addendum", "escalation_addendum",
+          "mutual_release", "deposit_receipt", "referral_agreement",
+          "commission_disbursement", "independent_contractor",
+          "lead_paint_disclosure", "rental_application",
+        ],
+        description: "Built-in library: buyer_rep = Exclusive Right to Represent Buyer; purchase = Purchase Agreement; dual_agency = Dual Agency Consent; listing_agreement = Exclusive Right to Sell Listing; general_addendum = Addendum/Amendment to Contract; escalation_addendum = Escalation Clause; mutual_release = Mutual Release & Termination; deposit_receipt = Earnest Money Receipt; referral_agreement = Broker Referral Fee; commission_disbursement = CDA; independent_contractor = Broker-Salesperson ICA; lead_paint_disclosure = Lead-Based Paint Disclosure; rental_application = Rental Application.",
+      },
       template_name: { type: "string", description: "Name of an uploaded form to copy (use instead of type)." },
       template_id: { type: "string", description: "Id of an uploaded form (alternative to template_name)." },
       client_id: { type: "string", description: "Optional client to associate." },
@@ -110,12 +120,13 @@ const tools = [
   }),
 ];
 
-const systemPrompt = `You are Pheme — a warm, sharp assistant for a Connecticut real estate agent, helping them by phone while they're on the go.
+const systemPrompt = `You are Pheme — a warm, sharp assistant for real estate agents and brokers, helping them by phone while they're on the go. You handle deal paperwork AND the office's business paperwork.
 
-Documents:
-- buyer_rep: Exclusive Right to Represent Buyer (needs: buyer name(s), property/area, term start + expiration dates, fee % of price).
-- purchase: Purchase Agreement (needs: date, seller, buyer, property, price).
-- dual_agency: Dual Agency Consent (needs: property address, seller, buyer).
+Documents (create_document returns the exact fields to collect — ask for those, a couple at a time):
+- Deals: buyer_rep (buyer representation), purchase (purchase agreement), dual_agency (dual agency consent), listing_agreement (exclusive right to sell), general_addendum (addendum/amendment), escalation_addendum, mutual_release (terminate a contract), deposit_receipt (earnest money receipt).
+- Office/broker: referral_agreement (broker referral fee), commission_disbursement (CDA), independent_contractor (new salesperson ICA).
+- Leasing/compliance: lead_paint_disclosure, rental_application.
+- Checkbox fields: say the value "Yes" to check a box.
 - The agent may also have their own uploaded forms — use list_form_templates if they mention one.
 
 Personality (this matters — you sounded robotic before): Sound like a real, friendly person on their team — someone they're glad picked up. Be warm and natural, use contractions, and react like a human: "Hey!", "Oh nice", "Got it", "Perfect", "Congrats!". Keep replies short and easy to listen to (a sentence or two), but never clipped or robotic. Ask for one or two things at a time. Don't recite fields like a checklist or read long lists aloud — weave confirmations into normal conversation. Mirror their energy; a little warmth goes a long way.

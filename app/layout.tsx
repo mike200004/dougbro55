@@ -25,7 +25,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Pheme — Voice that carries.",
     description:
-      "The assistant for real estate agents. Fill, file, e-sign, and send your documents by phone, text, or web.",
+      "The assistant for real estate agents and brokerages. Fill, file, e-sign, and send your documents by phone, text, or web.",
     images: ["/pheme-logo.png"],
     type: "website",
     url: "/",

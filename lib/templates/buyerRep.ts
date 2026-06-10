@@ -5,6 +5,7 @@ import type { TemplateDef } from "./types";
 // below their blank lines, so values sit ~13px above the label baseline).
 export const buyerRep: TemplateDef = {
   id: "buyer_rep",
+  category: "Agency & representation",
   name: "Exclusive Right to Represent Buyer Agreement",
   shortName: "Buyer Rep",
   description:

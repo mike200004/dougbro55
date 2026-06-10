@@ -10,7 +10,7 @@ import {
 } from "@/lib/db";
 import { listActivity } from "@/lib/activity";
 import { getPlan } from "@/lib/billing";
-import { templateList, getTemplate } from "@/lib/templates";
+import { templateCategories, templateList, getTemplate } from "@/lib/templates";
 import { getAccount } from "@/lib/auth";
 import { newDocumentAction, startFromTemplateAction } from "./actions";
 import AddClient from "./AddClient";
@@ -99,27 +99,41 @@ export default async function Home() {
 
       <section>
         <h2 className="sectionTitle">New document</h2>
-        <div className="grid">
-          {templateList.map((tpl) => (
-            <form key={tpl.id} action={newDocumentAction.bind(null, tpl.id)}>
-              <button
-                type="submit"
-                className="card"
-                style={{
-                  width: "100%",
-                  textAlign: "left",
-                  cursor: "pointer",
-                  color: "var(--text)",
-                  font: "inherit",
-                }}
-              >
-                <div className="cardKicker">{tpl.shortName}</div>
-                <div className="cardTitle">{tpl.name}</div>
-                <div className="cardBody">{tpl.description}</div>
-              </button>
-            </form>
-          ))}
-        </div>
+        <p className="pageSub" style={{ marginTop: 0, marginBottom: 14, fontSize: 14 }}>
+          A full library for the deal and the office — or say the word to your assistant
+          and it starts one for you.
+        </p>
+        {templateCategories.map((cat) => {
+          const docs = templateList.filter((t) => t.category === cat);
+          if (docs.length === 0) return null;
+          return (
+            <div key={cat} style={{ marginBottom: 18 }}>
+              <div className="cardKicker" style={{ marginBottom: 10 }}>{cat}</div>
+              <div className="grid">
+                {docs.map((tpl) => (
+                  <form key={tpl.id} action={newDocumentAction.bind(null, tpl.id)}>
+                    <button
+                      type="submit"
+                      className="card"
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        textAlign: "left",
+                        cursor: "pointer",
+                        color: "var(--text)",
+                        font: "inherit",
+                      }}
+                    >
+                      <div className="cardKicker">{tpl.shortName}</div>
+                      <div className="cardTitle" style={{ fontSize: 19 }}>{tpl.name}</div>
+                      <div className="cardBody">{tpl.description}</div>
+                    </button>
+                  </form>
+                ))}
+              </div>
+            </div>
+          );
+        })}
       </section>
 
       <section>
