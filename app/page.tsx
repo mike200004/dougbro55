@@ -1,12 +1,26 @@
 import Link from "next/link";
-import { getProfile, listClients, listDocuments, listFormTemplates, memberNames } from "@/lib/db";
+import {
+  getProfile,
+  listClients,
+  listDocuments,
+  listFormTemplates,
+  listMembers,
+  listSignatureRequests,
+  memberNames,
+} from "@/lib/db";
+import { listActivity } from "@/lib/activity";
+import { getPlan } from "@/lib/billing";
 import { templateList, getTemplate } from "@/lib/templates";
 import { getAccount } from "@/lib/auth";
 import { newDocumentAction, startFromTemplateAction } from "./actions";
 import AddClient from "./AddClient";
+import Onboarding from "./Onboarding";
+import TemplateActions from "./TemplateActions";
 import Landing from "./Landing";
 
 export const dynamic = "force-dynamic";
+
+const PHEME_NUMBER = "(475) 270-3374";
 
 function greeting(name: string | undefined) {
   const who = name?.split(" ")[0];
@@ -17,24 +31,71 @@ export default async function Home() {
   const account = await getAccount();
   if (!account) return <Landing />;
   const { accountId } = account;
-  const [profile, clients, documents, names, forms] = await Promise.all([
-    getProfile(accountId),
-    listClients(accountId),
-    listDocuments(accountId),
-    memberNames(accountId),
-    listFormTemplates(accountId),
-  ]);
+  const [profile, clients, documents, names, forms, members, sigs, activity, plan] =
+    await Promise.all([
+      getProfile(accountId),
+      listClients(accountId),
+      listDocuments(accountId),
+      memberNames(accountId),
+      listFormTemplates(accountId),
+      listMembers(accountId),
+      listSignatureRequests(accountId),
+      listActivity(accountId, 8),
+      getPlan(accountId),
+    ]);
+
+  const monthStart = new Date();
+  monthStart.setDate(1);
+  monthStart.setHours(0, 0, 0, 0);
+  const filedThisMonth = documents.filter(
+    (d) => d.status === "completed" && new Date(d.updated_at) >= monthStart,
+  ).length;
+  const awaitingSig = sigs.filter((s) => s.status === "pending").length;
 
   return (
     <div className="stack">
       <header>
         <h1 className="pageTitle">{greeting(account.name || profile?.agent_name)}</h1>
         <p className="pageSub">
-          Your real estate home base. Start a document below, or talk to your{" "}
-          <Link href="/assistant">AI assistant</Link>{" "}
-          to fill one out hands-free.
+          Your real estate home base. Start a document below, call{" "}
+          <a href="tel:+14752703374">{PHEME_NUMBER}</a>, or talk to your{" "}
+          <Link href="/assistant">AI assistant</Link> to fill one out hands-free.
         </p>
       </header>
+
+      {plan.plan === "trial" && (
+        <div className="notice">
+          You’re on a free trial — {plan.daysLeft} day{plan.daysLeft === 1 ? "" : "s"} left.
+          Upgrade anytime in <Link href="/settings">Settings</Link>.
+        </div>
+      )}
+      {plan.plan === "expired" && (
+        <div className="notice">
+          Your trial has ended — upgrade in <Link href="/settings">Settings</Link> to keep
+          filing documents.
+        </div>
+      )}
+
+      <Onboarding
+        phone={PHEME_NUMBER}
+        hasDoc={documents.length > 0}
+        hasTemplate={forms.length > 0}
+        hasTeam={members.length > 1}
+      />
+
+      <section className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
+        {[
+          { n: filedThisMonth, label: "Filed this month" },
+          { n: clients.length, label: "Clients remembered" },
+          { n: forms.length, label: "Forms uploaded" },
+          { n: awaitingSig, label: "Awaiting signature" },
+        ].map((s) => (
+          <div key={s.label} className="card" style={{ textAlign: "center", padding: 16 }}>
+            <div className="cardTitle" style={{ fontSize: 30, margin: 0 }}>{s.n}</div>
+            <div className="rowSub">{s.label}</div>
+          </div>
+        ))}
+      </section>
 
       <section>
         <h2 className="sectionTitle">New document</h2>
@@ -71,17 +132,21 @@ export default async function Home() {
         {forms.length > 0 && (
           <div className="grid" style={{ marginBottom: 16 }}>
             {forms.map((f) => (
-              <form key={f.id} action={startFromTemplateAction.bind(null, f.id)}>
-                <button
-                  type="submit"
-                  className="card"
-                  style={{ width: "100%", textAlign: "left", cursor: "pointer", color: "var(--text)", font: "inherit" }}
-                >
-                  <div className="cardKicker">Uploaded form</div>
-                  <div className="cardTitle">{f.name}</div>
-                  <div className="cardBody">{f.fields.length} fields · start a copy</div>
-                </button>
-              </form>
+              <div key={f.id} className="card">
+                <form action={startFromTemplateAction.bind(null, f.id)}>
+                  <button
+                    type="submit"
+                    style={{ all: "unset", cursor: "pointer", display: "block", width: "100%" }}
+                  >
+                    <div className="cardKicker">Uploaded form</div>
+                    <div className="cardTitle">{f.name}</div>
+                    <div className="cardBody">{f.fields.length} fields · start a copy</div>
+                  </button>
+                </form>
+                <div style={{ marginTop: 10 }}>
+                  <TemplateActions templateId={f.id} name={f.name} />
+                </div>
+              </div>
             ))}
           </div>
         )}
@@ -89,7 +154,9 @@ export default async function Home() {
       </section>
 
       <section>
-        <h2 className="sectionTitle">Recent documents</h2>
+        <h2 className="sectionTitle">
+          Recent documents · <Link href="/documents" style={{ fontWeight: 700 }}>view all</Link>
+        </h2>
         {documents.length === 0 ? (
           <p className="muted">No documents yet. Start one above or ask the assistant.</p>
         ) : (
@@ -115,11 +182,13 @@ export default async function Home() {
       </section>
 
       <section>
-        <h2 className="sectionTitle">Clients</h2>
+        <h2 className="sectionTitle">
+          Clients · <Link href="/clients" style={{ fontWeight: 700 }}>view all</Link>
+        </h2>
         {clients.length > 0 && (
           <div style={{ marginBottom: 16 }}>
             {clients.slice(0, 6).map((c) => (
-              <div key={c.id} className="row">
+              <Link key={c.id} href={`/clients/${c.id}`} className="row" style={{ textDecoration: "none" }}>
                 <div>
                   <div className="rowMain">
                     {c.secondary_name ? `${c.full_name} & ${c.secondary_name}` : c.full_name}
@@ -129,12 +198,29 @@ export default async function Home() {
                   </div>
                   {c.preferences && <div className="rowNote">Remembers: {c.preferences}</div>}
                 </div>
-              </div>
+              </Link>
             ))}
           </div>
         )}
         <AddClient />
       </section>
+
+      {activity.length > 0 && (
+        <section>
+          <h2 className="sectionTitle">Recent activity</h2>
+          {activity.map((a) => (
+            <div key={a.id} className="row" style={{ padding: "10px 18px" }}>
+              <div>
+                <div style={{ fontSize: 14 }}>{a.message}</div>
+                <div className="rowSub">
+                  {new Date(a.created_at).toLocaleString()}
+                  {a.actor_id && names[a.actor_id] ? ` · ${names[a.actor_id]}` : ""}
+                </div>
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
 
       {!profile && (
         <div className="notice">

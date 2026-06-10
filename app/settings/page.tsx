@@ -1,9 +1,12 @@
 import Link from "next/link";
 import { getProfile, listMembers } from "@/lib/db";
 import { requireAccount } from "@/lib/auth";
+import { getPlan, getSubscription } from "@/lib/billing";
 import { saveProfileAction } from "@/app/actions";
 import type { AgentProfile } from "@/lib/types";
 import Team from "./Team";
+import Billing from "./Billing";
+import Security from "./Security";
 
 export const dynamic = "force-dynamic";
 
@@ -18,10 +21,13 @@ const FIELDS: { key: keyof AgentProfile; label: string; hint?: string }[] = [
 ];
 
 export default async function SettingsPage() {
-  const { accountId, role } = await requireAccount();
-  const [profile, members] = await Promise.all([
+  const account = await requireAccount();
+  const { accountId, role } = account;
+  const [profile, members, plan, sub] = await Promise.all([
     getProfile(accountId),
     listMembers(accountId),
+    getPlan(accountId),
+    getSubscription(accountId),
   ]);
   const isOwner = role === "owner";
 
@@ -71,6 +77,18 @@ export default async function SettingsPage() {
         }))}
         isOwner={isOwner}
       />
+
+      {isOwner && (
+        <section>
+          <h2 className="sectionTitle">Plan & billing</h2>
+          <Billing plan={plan.plan} daysLeft={plan.daysLeft} hasCustomer={!!sub?.stripe_customer_id} />
+        </section>
+      )}
+
+      <section>
+        <h2 className="sectionTitle">Security</h2>
+        <Security email={account.email || profile?.email || ""} isOwner={isOwner} />
+      </section>
     </div>
   );
 }

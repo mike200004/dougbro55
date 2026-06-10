@@ -14,8 +14,31 @@ const STEPS = [
   },
   {
     n: "3",
-    title: "File it & send it",
-    body: "Download the finished PDF or text it to your client, attorney, or co-agent in seconds.",
+    title: "File, send & sign",
+    body: "Download the finished PDF, text or email it anywhere, or send it out for e-signature — all from the same conversation.",
+  },
+];
+
+const FAQ = [
+  {
+    q: "What forms can Pheme fill?",
+    a: "Three Connecticut staples are built in (SmartMLS purchase agreement, buyer representation, dual agency consent) — and you can upload any of your own PDFs. Fillable forms are read automatically; flat or scanned forms get AI field detection you can fine-tune once, then reuse forever.",
+  },
+  {
+    q: "How does the phone assistant know it's me?",
+    a: "Caller ID. Your registered mobile (and your assistant's) maps to your account — call or text from it and Pheme already knows who you are, your brokerage details, and your clients.",
+  },
+  {
+    q: "Are the e-signatures legally valid?",
+    a: "Pheme captures ESIGN/UETA-style consent, the signature, and a full audit trail (signer, timestamp, IP, document fingerprint) on a certificate page attached to the executed PDF. As with any tool, check your brokerage's policies for your use case.",
+  },
+  {
+    q: "What does it cost?",
+    a: "Pheme is free during early access — every feature included. Paid plans will come later, with plenty of notice.",
+  },
+  {
+    q: "Can my assistant use it too?",
+    a: "Yes — invite them from Settings. They get their own login and phone number, everything they do lands in your account, and you can see who did what.",
   },
 ];
 
@@ -34,7 +57,11 @@ const FEATURES = [
   },
   {
     title: "Send in seconds",
-    body: "Text a client, attorney, or the other agent a secure link to the finished PDF, right from the same conversation.",
+    body: "Text or email the finished PDF to a client, attorney, or the other agent — or to yourself — right from the same conversation.",
+  },
+  {
+    title: "E-signatures built in",
+    body: "Say “send it to Bob for signature.” The signer gets a secure link, signs on their phone, and the executed copy lands back with you — with a full audit trail.",
   },
   {
     title: "Bring your team",
@@ -98,6 +125,30 @@ export default function Landing() {
             <div className="featureTitle">{f.title}</div>
             <div className="featureBody">{f.body}</div>
           </div>
+        ))}
+      </div>
+
+      <h2 className="sectionHeading">Simple pricing</h2>
+      <div className="card" style={{ maxWidth: 560, margin: "0 auto", textAlign: "center", padding: 32 }}>
+        <div className="cardKicker">Early access</div>
+        <div className="cardTitle" style={{ fontSize: 40, margin: "10px 0 4px" }}>Free</div>
+        <p className="cardBody" style={{ marginBottom: 18 }}>
+          Every feature included while Pheme is in early access — unlimited documents, form
+          uploads, e-signatures, client memory, and your team. Paid plans come later, with
+          plenty of notice.
+        </p>
+        <Link href="/signup" className="btn btnPrimary btnLg">Claim your account</Link>
+      </div>
+
+      <h2 className="sectionHeading">Questions, answered</h2>
+      <div style={{ maxWidth: 720, margin: "0 auto" }}>
+        {FAQ.map((item) => (
+          <details key={item.q} className="card" style={{ marginBottom: 10, padding: "16px 20px" }}>
+            <summary style={{ cursor: "pointer", fontWeight: 700, fontFamily: "var(--font-serif), Georgia, serif", color: "var(--ink)" }}>
+              {item.q}
+            </summary>
+            <p className="cardBody" style={{ marginTop: 10 }}>{item.a}</p>
+          </details>
         ))}
       </div>
 

@@ -19,10 +19,12 @@ import type {
   FormTemplate,
   FormTemplateField,
 } from "@/lib/types";
+import crypto from "crypto";
 import { getTemplate } from "@/lib/templates";
 import type { Placement } from "@/lib/templates/types";
 import { downloadTemplateFile } from "@/lib/storage";
-import { getFormTemplate, getProfile } from "@/lib/db";
+import { getFormTemplate, getProfile, latestSignedRequest } from "@/lib/db";
+import { admin } from "@/lib/supabase/admin";
 
 const INK = rgb(0.06, 0.09, 0.23);
 
@@ -162,8 +164,25 @@ export async function fillTemplateDocument(
 /** Render a document's filled PDF — built-in template or uploaded form. */
 export async function renderDocument(
   doc: DocumentRecord,
+  opts?: { ignoreSigned?: boolean },
 ): Promise<{ bytes: Uint8Array; filename: string }> {
   const safe = (name: string) => (name || "document").replace(/[^a-z0-9]+/gi, "-");
+
+  // Once a document has been signed, the signed PDF (with its certificate
+  // page) is the document of record everywhere.
+  if (!opts?.ignoreSigned) {
+    const signed = await latestSignedRequest(doc.id);
+    if (signed?.signed_path) {
+      const { data } = await admin().storage.from("form-templates").download(signed.signed_path);
+      if (data) {
+        return {
+          bytes: new Uint8Array(await data.arrayBuffer()),
+          filename: safe(`${doc.title || "document"}-signed`),
+        };
+      }
+    }
+  }
+
   if (doc.template_id) {
     const tpl = await getFormTemplate(doc.account_id, doc.template_id);
     if (!tpl) throw new Error("Form template not found");
@@ -172,4 +191,107 @@ export async function renderDocument(
   const profile = await getProfile(doc.account_id);
   const bytes = await fillDocument(doc.type as DocType, doc.fields, profile);
   return { bytes, filename: safe(doc.title || getTemplate(doc.type as DocType).shortName) };
+}
+
+// ---------------------------------------------------------------------------
+// E-signature certificate page
+// ---------------------------------------------------------------------------
+
+export interface SignatureStamp {
+  signerName: string;
+  signerContact: string;
+  documentTitle: string;
+  signedAtIso: string;
+  ip: string;
+  userAgent: string;
+  consentText: string;
+  /** Optional drawn signature as a PNG data URL. */
+  signaturePngDataUrl?: string | null;
+}
+
+/**
+ * Append a signature certificate page to a PDF — the standard lightweight
+ * e-sign approach: the signature (drawn or typed), signer identity, timestamp,
+ * consent statement, and a SHA-256 fingerprint of the document being signed.
+ */
+export async function stampSignaturePage(
+  pdfBytes: Uint8Array,
+  stamp: SignatureStamp,
+): Promise<Uint8Array> {
+  const docHash = crypto.createHash("sha256").update(pdfBytes).digest("hex");
+  const pdf = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const italic = await pdf.embedFont(StandardFonts.TimesRomanItalic);
+
+  const page = pdf.addPage([612, 792]);
+  const ink = rgb(0.106, 0.169, 0.267);
+  const gold = rgb(0.663, 0.518, 0.247);
+  const muted = rgb(0.35, 0.33, 0.3);
+  let y = 720;
+
+  page.drawText("Signature Certificate", { x: 64, y, size: 24, font: bold, color: ink });
+  y -= 14;
+  page.drawRectangle({ x: 64, y, width: 80, height: 2, color: gold });
+  y -= 28;
+  page.drawText("Completed electronically via Pheme (pheme.deals)", { x: 64, y, size: 10, font, color: muted });
+  y -= 36;
+
+  const row = (label: string, value: string) => {
+    page.drawText(label.toUpperCase(), { x: 64, y, size: 8, font: bold, color: muted });
+    y -= 14;
+    page.drawText(value.slice(0, 95), { x: 64, y, size: 11, font, color: ink });
+    y -= 24;
+  };
+
+  row("Document", stamp.documentTitle);
+  row("Signer", stamp.signerName);
+  row("Contact", stamp.signerContact);
+  row("Signed at", stamp.signedAtIso);
+  row("IP address", stamp.ip);
+  row("Device", stamp.userAgent.slice(0, 90));
+  row("Document SHA-256", docHash);
+
+  y -= 6;
+  page.drawText("SIGNATURE", { x: 64, y, size: 8, font: bold, color: muted });
+  y -= 8;
+
+  if (stamp.signaturePngDataUrl?.startsWith("data:image/png;base64,")) {
+    const pngBytes = Buffer.from(stamp.signaturePngDataUrl.split(",")[1], "base64");
+    const png = await pdf.embedPng(pngBytes);
+    const dims = png.scaleToFit(260, 90);
+    y -= dims.height;
+    page.drawImage(png, { x: 64, y, width: dims.width, height: dims.height });
+    y -= 10;
+  } else {
+    y -= 34;
+    page.drawText(stamp.signerName, { x: 64, y, size: 26, font: italic, color: ink });
+    y -= 10;
+  }
+  page.drawLine({ start: { x: 64, y }, end: { x: 340, y }, thickness: 1, color: ink });
+  y -= 28;
+
+  const consentLines = wrap(stamp.consentText, 92);
+  for (const line of consentLines) {
+    page.drawText(line, { x: 64, y, size: 8.5, font, color: muted });
+    y -= 12;
+  }
+
+  return pdf.save();
+}
+
+function wrap(text: string, width: number): string[] {
+  const words = text.split(/\s+/);
+  const lines: string[] = [];
+  let cur = "";
+  for (const w of words) {
+    if ((cur + " " + w).trim().length > width) {
+      lines.push(cur.trim());
+      cur = w;
+    } else {
+      cur += " " + w;
+    }
+  }
+  if (cur.trim()) lines.push(cur.trim());
+  return lines;
 }

@@ -7,6 +7,8 @@ import { createSupabaseBrowser } from "@/lib/supabase/client";
 
 const LINKS = [
   { href: "/", label: "Dashboard" },
+  { href: "/documents", label: "Documents" },
+  { href: "/clients", label: "Clients" },
   { href: "/assistant", label: "Assistant" },
   { href: "/settings", label: "Settings" },
 ];

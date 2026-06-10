@@ -18,15 +18,17 @@ const merriweather = Merriweather({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://pheme.deals"),
   title: "Pheme — Voice that carries.",
   description:
-    "Fill, file, and send Connecticut real estate documents by voice, text, or web — with an assistant that remembers your clients.",
+    "Fill, file, e-sign, and send real estate documents by voice, text, or web — with an assistant that remembers your clients.",
   openGraph: {
     title: "Pheme — Voice that carries.",
     description:
-      "The assistant for Connecticut real estate agents. Fill, file, and send your documents by phone, text, or web.",
+      "The assistant for real estate agents. Fill, file, e-sign, and send your documents by phone, text, or web.",
     images: ["/pheme-logo.png"],
     type: "website",
+    url: "/",
   },
   twitter: { card: "summary_large_image", images: ["/pheme-logo.png"] },
 };
@@ -53,7 +55,8 @@ export default async function RootLayout({
               · Voice that carries.
             </span>
             <span>
-              Call or text <a href="tel:+14752703374">(475) 270-3374</a> · © {year}
+              Call or text <a href="tel:+14752703374">(475) 270-3374</a> ·{" "}
+              <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · © {year}
             </span>
           </div>
         </footer>

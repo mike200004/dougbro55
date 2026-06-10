@@ -7,6 +7,7 @@ import type {
   DocType,
   FormTemplate,
   FormTemplateField,
+  SignatureRequest,
 } from "@/lib/types";
 
 /**
@@ -185,6 +186,18 @@ export async function createClient_(
     .single();
   if (error) throw new Error(error.message);
   return data as Client;
+}
+
+export async function updateClient(
+  accountId: string,
+  clientId: string,
+  patch: Partial<Pick<Client, "full_name" | "secondary_name" | "email" | "phone" | "role" | "notes" | "preferences">>,
+): Promise<void> {
+  await admin().from("clients").update(patch).eq("account_id", accountId).eq("id", clientId);
+}
+
+export async function deleteClient(accountId: string, clientId: string): Promise<void> {
+  await admin().from("clients").delete().eq("account_id", accountId).eq("id", clientId);
 }
 
 // ---------------------------------------------------------------------------
@@ -439,13 +452,52 @@ export async function buildMemoryDigest(accountId: string, limit = 12): Promise<
 // Documents
 // ---------------------------------------------------------------------------
 
-export async function listDocuments(accountId: string): Promise<DocumentRecord[]> {
-  const { data } = await admin()
+export async function listDocuments(
+  accountId: string,
+  opts?: { includeArchived?: boolean },
+): Promise<DocumentRecord[]> {
+  let q = admin()
     .from("documents")
     .select("*")
     .eq("account_id", accountId)
     .order("updated_at", { ascending: false });
+  if (!opts?.includeArchived) q = q.eq("archived", false);
+  const { data } = await q;
   return (data as DocumentRecord[]) ?? [];
+}
+
+export async function setDocumentArchived(
+  accountId: string,
+  docId: string,
+  archived: boolean,
+): Promise<void> {
+  await admin()
+    .from("documents")
+    .update({ archived, updated_at: nowIso() })
+    .eq("account_id", accountId)
+    .eq("id", docId);
+}
+
+export async function deleteDocument(accountId: string, docId: string): Promise<void> {
+  await admin().from("documents").delete().eq("account_id", accountId).eq("id", docId);
+}
+
+/** Start a fresh draft from an existing document (same type/template, same fields). */
+export async function duplicateDocument(
+  accountId: string,
+  docId: string,
+  createdBy?: string | null,
+): Promise<DocumentRecord | null> {
+  const doc = await getDocument(accountId, docId);
+  if (!doc) return null;
+  return await createDocument(accountId, {
+    type: doc.type,
+    template_id: doc.template_id,
+    title: `${doc.title || "Document"} (copy)`,
+    client_id: doc.client_id,
+    fields: { ...doc.fields },
+    created_by: createdBy ?? null,
+  });
 }
 
 export async function getDocument(
@@ -535,6 +587,21 @@ export async function getFormTemplate(
   return (data as FormTemplate) ?? null;
 }
 
+export async function renameFormTemplate(
+  accountId: string,
+  templateId: string,
+  name: string,
+): Promise<void> {
+  await admin().from("form_templates").update({ name }).eq("account_id", accountId).eq("id", templateId);
+}
+
+export async function deleteFormTemplate(accountId: string, templateId: string): Promise<void> {
+  const tpl = await getFormTemplate(accountId, templateId);
+  if (!tpl) return;
+  await admin().from("form_templates").delete().eq("account_id", accountId).eq("id", templateId);
+  await admin().storage.from("form-templates").remove([tpl.storage_path]);
+}
+
 /** Find a template by fuzzy name (for "start a copy of …" over voice/SMS). */
 export async function findFormTemplateByName(
   accountId: string,
@@ -604,6 +671,76 @@ export async function updateDocument(
     .single();
   if (error) throw new Error(error.message);
   return data as DocumentRecord;
+}
+
+// ---------------------------------------------------------------------------
+// Signature requests
+// ---------------------------------------------------------------------------
+
+export async function createSignatureRequest(
+  accountId: string,
+  input: {
+    document_id: string;
+    signer_name: string;
+    signer_email?: string | null;
+    signer_phone?: string | null;
+    created_by?: string | null;
+  },
+): Promise<SignatureRequest> {
+  const { data, error } = await admin()
+    .from("signature_requests")
+    .insert({
+      account_id: accountId,
+      document_id: input.document_id,
+      signer_name: input.signer_name,
+      signer_email: input.signer_email ?? null,
+      signer_phone: input.signer_phone ?? null,
+      created_by: input.created_by ?? null,
+    })
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+  return data as SignatureRequest;
+}
+
+/** Unscoped fetch — the signing page authorizes by HMAC token, not session. */
+export async function getSignatureRequestById(id: string): Promise<SignatureRequest | null> {
+  const { data } = await admin().from("signature_requests").select("*").eq("id", id).maybeSingle();
+  return (data as SignatureRequest) ?? null;
+}
+
+export async function updateSignatureRequest(
+  id: string,
+  patch: Partial<Pick<SignatureRequest, "status" | "signed_path" | "audit" | "signed_at" | "signer_name">>,
+): Promise<void> {
+  await admin().from("signature_requests").update(patch).eq("id", id);
+}
+
+export async function listSignatureRequests(
+  accountId: string,
+  documentId?: string,
+): Promise<SignatureRequest[]> {
+  let q = admin()
+    .from("signature_requests")
+    .select("*")
+    .eq("account_id", accountId)
+    .order("created_at", { ascending: false });
+  if (documentId) q = q.eq("document_id", documentId);
+  const { data } = await q;
+  return (data as SignatureRequest[]) ?? [];
+}
+
+/** Latest completed signature for a document, if any (signed PDFs chain). */
+export async function latestSignedRequest(documentId: string): Promise<SignatureRequest | null> {
+  const { data } = await admin()
+    .from("signature_requests")
+    .select("*")
+    .eq("document_id", documentId)
+    .eq("status", "signed")
+    .order("signed_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return (data as SignatureRequest) ?? null;
 }
 
 // ---------------------------------------------------------------------------

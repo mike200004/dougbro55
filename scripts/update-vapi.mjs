@@ -94,6 +94,20 @@ const tools = [
     },
     required: ["document_id"],
   }),
+  fn("request_signature", "Send a document out for e-signature ('send it to Bob for signature'). The signer gets a secure link to review and sign; the executed copy returns to the agent automatically. Needs the signer's email or mobile.", {
+    type: "object",
+    properties: {
+      document_id: { type: "string" },
+      signer_name: { type: "string" },
+      signer_email: { type: "string" },
+      signer_phone: { type: "string" },
+    },
+    required: ["document_id", "signer_name"],
+  }),
+  fn("list_documents", "List the agent's recent documents (title, status). Use when they reference an earlier document by name.", {
+    type: "object",
+    properties: { query: { type: "string", description: "Optional title filter." } },
+  }),
 ];
 
 const systemPrompt = `You are Pheme — a warm, sharp assistant for a Connecticut real estate agent, helping them by phone while they're on the go.
@@ -108,7 +122,7 @@ Personality (this matters — you sounded robotic before): Sound like a real, fr
 
 Efficiency (important for speed): Minimize tool calls. Do NOT call list_clients or get_agent_profile unless actually needed. Gather the required info first, then create the document ONCE and set ALL fields in a single set_document_fields call, then finalize. Create exactly one document per request — reuse the returned id; never create duplicates. Never invent document ids — use ids returned by tools.
 
-Data: Resolve relative dates against today; store like "12/31/2026". Store currency/percent as just the number (price "1,250,000", fee "2.5"). The broker/agency side auto-fills — never ask for it. "File it" = finalize_document (saves to the dashboard). To deliver it: send_document texts a secure link; email_document emails the PDF. To someone else, give their number/email; if they say "text/email it to me", call the tool with NO recipient and it goes to their own phone/email. Fill required fields first. When done, confirm in a few words.
+Data: Resolve relative dates against today; store like "12/31/2026". Store currency/percent as just the number (price "1,250,000", fee "2.5"). The broker/agency side auto-fills — never ask for it. "File it" = finalize_document (saves to the dashboard). To deliver it: send_document texts a secure link; email_document emails the PDF. To someone else, give their number/email; if they say "text/email it to me", call the tool with NO recipient and it goes to their own phone/email. To get it SIGNED ("send it to Bob for signature"), use request_signature with the signer's name + email or mobile — the executed copy comes back automatically. If they mention an earlier document by name, find it with list_documents. Fill required fields first. When done, confirm in a few words.
 
 People you already know on this account (recall and reuse — the instant one is mentioned, say what you remember and offer to reuse it):
 {{memoryDigest}}

@@ -7,14 +7,24 @@ import {
   createClient_,
   createDocument,
   createFormTemplate,
+  deleteClient,
+  deleteDocument,
+  deleteFormTemplate,
+  duplicateDocument,
   getDocument,
   getFormTemplate,
   insertMember,
   removeMember,
+  renameFormTemplate,
   saveProfile,
+  setDocumentArchived,
   setMemberStatus,
+  updateClient,
   updateDocument,
 } from "@/lib/db";
+import { logActivity } from "@/lib/activity";
+import { requestSignature } from "@/lib/signing";
+import { createCheckoutSession, createPortalSession, getSubscription, stripeConfigured } from "@/lib/billing";
 import { admin } from "@/lib/supabase/admin";
 import { requireAccount, getSessionUser } from "@/lib/auth";
 import { normalizePhone } from "@/lib/phone";
@@ -330,11 +340,152 @@ export async function sendDocumentAction(
 }
 
 export async function setDocumentStatusAction(docId: string, complete: boolean) {
-  const { accountId } = await requireAccount();
+  const { accountId, userId } = await requireAccount();
   const doc = await getDocument(accountId, docId);
   if (!doc) return;
   if (complete && !doc.template_id && missingRequired(doc.type as DocType, doc.fields).length > 0) return;
   await updateDocument(accountId, docId, { status: complete ? "completed" : "draft" });
+  if (complete) await logActivity(accountId, "document_filed", `Filed “${doc.title || "a document"}”.`, { actorId: userId });
   revalidatePath(`/documents/${docId}`);
   revalidatePath("/");
+}
+
+// ---------------------------------------------------------------------------
+// Document lifecycle
+// ---------------------------------------------------------------------------
+
+export async function archiveDocumentAction(docId: string, archived: boolean) {
+  const { accountId } = await requireAccount();
+  await setDocumentArchived(accountId, docId, archived);
+  revalidatePath("/documents");
+  revalidatePath("/");
+}
+
+export async function deleteDocumentAction(docId: string) {
+  const { accountId, userId } = await requireAccount();
+  const doc = await getDocument(accountId, docId);
+  if (!doc) return;
+  await deleteDocument(accountId, docId);
+  await logActivity(accountId, "document_deleted", `Deleted “${doc.title || "a document"}”.`, { actorId: userId });
+  revalidatePath("/documents");
+  revalidatePath("/");
+}
+
+export async function duplicateDocumentAction(docId: string) {
+  const { accountId, userId } = await requireAccount();
+  const copy = await duplicateDocument(accountId, docId, userId);
+  if (copy) redirect(`/documents/${copy.id}`);
+}
+
+export async function requestSignatureAction(input: {
+  docId: string;
+  signerName: string;
+  signerEmail?: string;
+  signerPhone?: string;
+}): Promise<ActionResult> {
+  const { accountId, userId } = await requireAccount();
+  const res = await requestSignature(accountId, {
+    documentId: input.docId,
+    signerName: input.signerName,
+    signerEmail: input.signerEmail || null,
+    signerPhone: input.signerPhone || null,
+    actorId: userId,
+  });
+  revalidatePath(`/documents/${input.docId}`);
+  revalidatePath("/documents");
+  return res.ok ? { ok: true } : { ok: false, error: res.message };
+}
+
+// ---------------------------------------------------------------------------
+// Clients
+// ---------------------------------------------------------------------------
+
+export async function updateClientAction(clientId: string, formData: FormData): Promise<void> {
+  const { accountId } = await requireAccount();
+  await updateClient(accountId, clientId, {
+    full_name: String(formData.get("full_name") || ""),
+    secondary_name: (formData.get("secondary_name") as string) || null,
+    email: (formData.get("email") as string) || null,
+    phone: (formData.get("phone") as string) || null,
+    role: ((formData.get("role") as string) || null) as "buyer" | "seller" | "both" | null,
+    preferences: (formData.get("preferences") as string) || null,
+    notes: (formData.get("notes") as string) || null,
+  });
+  revalidatePath(`/clients/${clientId}`);
+  revalidatePath("/clients");
+  revalidatePath("/");
+}
+
+export async function deleteClientAction(clientId: string) {
+  const { accountId } = await requireAccount();
+  await deleteClient(accountId, clientId);
+  revalidatePath("/clients");
+  redirect("/clients");
+}
+
+// ---------------------------------------------------------------------------
+// Templates
+// ---------------------------------------------------------------------------
+
+export async function renameTemplateAction(templateId: string, name: string) {
+  const { accountId } = await requireAccount();
+  if (name.trim()) await renameFormTemplate(accountId, templateId, name.trim());
+  revalidatePath("/");
+}
+
+export async function deleteTemplateAction(templateId: string) {
+  const { accountId, userId } = await requireAccount();
+  const tpl = await getFormTemplate(accountId, templateId);
+  await deleteFormTemplate(accountId, templateId);
+  if (tpl) await logActivity(accountId, "template_deleted", `Removed the form “${tpl.name}”.`, { actorId: userId });
+  revalidatePath("/");
+}
+
+// ---------------------------------------------------------------------------
+// Billing
+// ---------------------------------------------------------------------------
+
+export async function startCheckoutAction(): Promise<ActionResult & { url?: string }> {
+  const { accountId, email } = await requireAccount();
+  if (!stripeConfigured()) {
+    return { ok: false, error: "Billing isn't enabled yet — Pheme is free during early access." };
+  }
+  try {
+    const url = await createCheckoutSession(accountId, email || "");
+    return { ok: true, url };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Could not start checkout." };
+  }
+}
+
+export async function openBillingPortalAction(): Promise<ActionResult & { url?: string }> {
+  const { accountId } = await requireAccount();
+  const sub = await getSubscription(accountId);
+  if (!stripeConfigured() || !sub?.stripe_customer_id) {
+    return { ok: false, error: "No billing profile yet." };
+  }
+  try {
+    const url = await createPortalSession(sub.stripe_customer_id);
+    return { ok: true, url };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Could not open the billing portal." };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Account deletion (owner only — removes the whole account)
+// ---------------------------------------------------------------------------
+
+export async function deleteAccountAction(confirmText: string): Promise<ActionResult> {
+  const account = await requireAccount();
+  if (account.role !== "owner") return { ok: false, error: "Only the account owner can delete the account." };
+  if (confirmText !== "DELETE") return { ok: false, error: "Type DELETE to confirm." };
+  const sb = admin();
+  // Remove assistants' logins first, then the owner (cascades all account data).
+  const { data: members } = await sb.from("account_members").select("id").eq("account_id", account.accountId);
+  for (const m of members ?? []) {
+    if (m.id !== account.accountId) await sb.auth.admin.deleteUser(m.id);
+  }
+  await sb.auth.admin.deleteUser(account.accountId);
+  return { ok: true };
 }

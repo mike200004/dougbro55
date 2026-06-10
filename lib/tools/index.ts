@@ -8,11 +8,15 @@ import {
   getFormTemplate,
   getProfile,
   listClients,
+  listDocuments,
   listFormTemplates,
   rememberAboutClient,
   rememberParties,
   updateDocument,
 } from "@/lib/db";
+import { logActivity } from "@/lib/activity";
+import { requestSignature } from "@/lib/signing";
+import { getPlan, UPGRADE_MESSAGE } from "@/lib/billing";
 import { getTemplate, missingRequired, userFields } from "@/lib/templates";
 import type { DocumentRecord } from "@/lib/types";
 import { makeShareToken } from "@/lib/share";
@@ -181,6 +185,30 @@ export const toolSpecs: ToolSpec[] = [
       required: ["document_id"],
     },
   },
+  {
+    name: "request_signature",
+    description:
+      "Send a document out for e-signature. The signer gets a secure link (by email and/or text) to review and sign; the executed copy comes back to the agent automatically. Use when the agent says things like 'send it to Bob for signature' or 'get this signed'. Requires the signer's email or mobile number.",
+    parameters: {
+      type: "object",
+      properties: {
+        document_id: { type: "string" },
+        signer_name: { type: "string", description: "The signer's full name." },
+        signer_email: { type: "string", description: "Signer's email (preferred)." },
+        signer_phone: { type: "string", description: "Signer's mobile number (alternative)." },
+      },
+      required: ["document_id", "signer_name"],
+    },
+  },
+  {
+    name: "list_documents",
+    description:
+      "List the agent's recent documents (title, status, type) — use when they ask 'what did we file', want to reopen something, or reference an earlier document by name.",
+    parameters: {
+      type: "object",
+      properties: { query: { type: "string", description: "Optional name/title filter." } },
+    },
+  },
 ];
 
 function fieldSchemaFor(type: DocType) {
@@ -307,6 +335,8 @@ export async function runTool(
     }
 
     case "create_document": {
+      const plan = await getPlan(acc);
+      if (!plan.active) return { error: UPGRADE_MESSAGE };
       // Copy of an uploaded form template?
       const templateRef = (input.template_id as string) || (input.template_name as string);
       if (templateRef) {
@@ -416,6 +446,7 @@ export async function runTool(
       }
       const updated = await updateDocument(acc, docId, { status: "completed" });
       await rememberParties(acc, doc); // ensure parties + property are remembered
+      await logActivity(acc, "document_filed", `Filed “${updated.title || "a document"}”.`, { actorId: ctx.actorId });
       return {
         ok: true,
         document_id: updated.id,
@@ -451,6 +482,7 @@ export async function runTool(
       if (!sent.ok) {
         return { ok: false, message: `Could not send the text: ${sent.error}` };
       }
+      await logActivity(acc, "document_sent", `Texted “${doc.title || "a document"}” to ${toSelf ? "the agent" : to}.`, { actorId: ctx.actorId });
       return {
         ok: true,
         to,
@@ -491,7 +523,35 @@ export async function runTool(
           ? { ok: false, message: `Couldn't email it: ${sent.error}` }
           : { ok: false, message: "Email isn't set up yet on this account — I can text you the link instead." };
       }
+      await logActivity(acc, "document_emailed", `Emailed “${doc.title || "a document"}” to ${to}.`, { actorId: ctx.actorId });
       return { ok: true, to, message: `Emailed it to ${to}.` };
+    }
+
+    case "request_signature": {
+      const docId = String(input.document_id);
+      const doc = await getDocument(acc, docId);
+      if (!doc) return { error: `Document ${docId} not found` };
+      const rs = await requestSignature(acc, {
+        documentId: docId,
+        signerName: String(input.signer_name || ""),
+        signerEmail: (input.signer_email as string) || null,
+        signerPhone: (input.signer_phone as string) || null,
+        actorId: ctx.actorId ?? null,
+      });
+      return rs;
+    }
+
+    case "list_documents": {
+      const docs = await listDocuments(acc);
+      const q = String(input.query || "").toLowerCase().trim();
+      const filtered = q ? docs.filter((d) => (d.title || "").toLowerCase().includes(q)) : docs;
+      return filtered.slice(0, 12).map((d) => ({
+        document_id: d.id,
+        title: d.title,
+        status: d.status,
+        type: d.type === "uploaded" ? "uploaded form" : d.type,
+        updated_at: d.updated_at,
+      }));
     }
 
     default:

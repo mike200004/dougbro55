@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAccountByPhone, buildMemoryDigest } from "@/lib/db";
 import { normalizePhone } from "@/lib/phone";
+import { sendSms } from "@/lib/twilio";
+import { logActivity } from "@/lib/activity";
 
 export const runtime = "nodejs";
 export const maxDuration = 15;
@@ -26,9 +28,34 @@ export async function POST(req: NextRequest) {
 
   let memoryDigest = "";
   try {
-    const body: { message?: { type?: string; call?: { customer?: { number?: string } } } } =
-      await req.json();
-    const callerPhone = normalizePhone(body.message?.call?.customer?.number);
+    const body: {
+      message?: {
+        type?: string;
+        call?: { customer?: { number?: string } };
+        analysis?: { summary?: string };
+        summary?: string;
+      };
+    } = await req.json();
+    const message = body.message ?? {};
+    const callerPhone = normalizePhone(message.call?.customer?.number);
+
+    // After a call ends, text the agent a quick recap of what got done.
+    if (message.type === "end-of-call-report") {
+      const summary = message.analysis?.summary || message.summary;
+      if (callerPhone && summary) {
+        const actor = await getAccountByPhone(callerPhone);
+        if (actor) {
+          const recap = summary.length > 280 ? `${summary.slice(0, 277)}…` : summary;
+          await sendSms(callerPhone, `Pheme recap: ${recap}`);
+          await logActivity(actor.accountId, "call_recap", "Phone call completed — recap texted to the agent.", {
+            actorId: actor.memberId,
+            meta: { summary },
+          });
+        }
+      }
+      return NextResponse.json({});
+    }
+
     if (callerPhone) {
       const actor = await getAccountByPhone(callerPhone);
       if (actor) {
