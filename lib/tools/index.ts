@@ -15,9 +15,10 @@ import {
   updateDocument,
 } from "@/lib/db";
 import { logActivity } from "@/lib/activity";
+import { defer } from "@/lib/defer";
 import { requestSignature } from "@/lib/signing";
 import { getPlan, UPGRADE_MESSAGE } from "@/lib/billing";
-import { getTemplate, missingRequired, templateList, userFields } from "@/lib/templates";
+import { getTemplate, isDocType, missingRequired, templateList, userFields } from "@/lib/templates";
 import type { DocumentRecord } from "@/lib/types";
 import { makeShareToken } from "@/lib/share";
 import { sendSms } from "@/lib/twilio";
@@ -283,6 +284,12 @@ export interface ToolContext {
   accountId: string;
   actorId?: string; // who is acting (owner or assistant member id)
   actorPhone?: string; // the acting agent's own phone (caller/sender) — for "send it to me"
+  /**
+   * "voice" gets compact tool results: every token in a result is re-read by
+   * the conversation LLM on EVERY later turn of the call, so big payloads make
+   * the whole call slower. Web/SMS keep the full shapes.
+   */
+  channel?: "voice" | "sms" | "web";
 }
 
 export async function runTool(
@@ -291,14 +298,28 @@ export async function runTool(
   ctx: ToolContext,
 ): Promise<unknown> {
   const acc = ctx.accountId;
+  const voice = ctx.channel === "voice";
   switch (name) {
     case "get_agent_profile": {
       const profile = await getProfile(acc);
       return profile ?? { note: "No agent profile set yet. Ask the user to fill it in Settings." };
     }
 
-    case "list_clients":
-      return await listClients(acc);
+    case "list_clients": {
+      const clients = await listClients(acc);
+      if (!voice) return clients;
+      clients.sort((a, b) =>
+        (b.last_seen_at ?? b.created_at).localeCompare(a.last_seen_at ?? a.created_at),
+      );
+      return {
+        count: clients.length,
+        clients: clients.slice(0, 25).map((c) => ({
+          name: c.secondary_name ? `${c.full_name} & ${c.secondary_name}` : c.full_name,
+          role: c.role,
+        })),
+        note: "Details for any of them via recall_client.",
+      };
+    }
 
     case "recall_client": {
       const dossier = await getClientDossier(acc, String(input.name || ""));
@@ -314,14 +335,17 @@ export async function runTool(
         preferences: client.preferences,
         notes: client.notes,
         co_parties: coParties,
-        deals: deals.map((d) => ({ type: d.type, property: d.property, status: d.status, date: d.date })),
+        deals: (voice ? deals.slice(0, 5) : deals).map((d) => ({ type: d.type, property: d.property, status: d.status, date: d.date })),
       };
     }
 
     case "remember_about_client": {
       const c = await rememberAboutClient(acc, String(input.name || ""), String(input.note || ""));
       if (!c) return { ok: false, message: `No client named "${input.name}" found to attach that to.` };
-      return { ok: true, name: c.full_name, preferences: c.preferences, message: "Got it — I'll remember that." };
+      // Voice: don't echo the ever-growing preferences string back into the call context.
+      return voice
+        ? { ok: true, name: c.full_name, message: "Got it — I'll remember that." }
+        : { ok: true, name: c.full_name, preferences: c.preferences, message: "Got it — I'll remember that." };
     }
 
     case "create_client": {
@@ -355,8 +379,24 @@ export async function runTool(
           client_id: (input.client_id as string) ?? null,
           created_by: ctx.actorId ?? null,
         });
-        const schema = await docSchema(acc, doc);
-        return { document_id: doc.id, template: tpl.name, title: doc.title, fields: schema.fields, missing_required: [] };
+        // Build the schema from the template already in hand — no re-fetch.
+        const fields = tpl.fields.map((f) => ({
+          key: f.key,
+          label: f.label,
+          type: f.type,
+          required: false,
+          options: f.options,
+        }));
+        if (voice) {
+          return {
+            document_id: doc.id,
+            template: tpl.name,
+            title: doc.title,
+            field_labels: fields.slice(0, 40).map((f) => f.label),
+            note: "Set values with set_document_fields using these labels as keys.",
+          };
+        }
+        return { document_id: doc.id, template: tpl.name, title: doc.title, fields, missing_required: [] };
       }
 
       const type = input.type as DocType;
@@ -373,6 +413,19 @@ export async function runTool(
         client_id: (input.client_id as string) ?? null,
         created_by: ctx.actorId ?? null,
       });
+      if (voice) {
+        // Labels only — the fuzzy key resolver accepts labels as keys, and the
+        // voice model never needs machine keys/types/hints.
+        const fields = userFields(type);
+        return {
+          document_id: doc.id,
+          type,
+          title: doc.title,
+          required: fields.filter((f) => f.required).map((f) => f.label),
+          optional: fields.filter((f) => !f.required).map((f) => f.label),
+          note: "Set values with set_document_fields using these labels as keys.",
+        };
+      }
       return {
         document_id: doc.id,
         type,
@@ -400,12 +453,19 @@ export async function runTool(
         if (canonical) accepted[canonical] = String(v);
         else rejected.push(k);
       }
-      const updated = await updateDocument(acc, docId, { fields: accepted });
-      await rememberParties(acc, updated); // auto-learn the parties + property
+      const updated = await updateDocument(acc, docId, { fields: accepted }, doc);
+      // Voice: auto-learn AFTER the response — it's bookkeeping, and this tool
+      // runs on nearly every turn of a call. Web/SMS run a multi-round tool
+      // loop in ONE request, where a later recall_client in the same turn must
+      // see the just-learned parties — keep it awaited there.
+      if (voice) defer(() => rememberParties(acc, updated));
+      else await rememberParties(acc, updated);
       return {
         document_id: docId,
         updated_fields: Object.keys(accepted),
-        rejected_unknown_keys: rejected,
+        ...(rejected.length
+          ? { rejected_unknown_keys: rejected, warning: "Those keys did NOT save — re-ask and set them with the field labels." }
+          : {}),
         missing_required: schema.missing(updated.fields),
       };
     }
@@ -413,8 +473,22 @@ export async function runTool(
     case "get_document": {
       const docId = String(input.document_id);
       const doc = await getDocument(acc, docId);
-      if (!doc) return { error: `Document ${docId} not found` };
+      if (!doc) return { error: `Document ${docId} not found — use the id returned by create_document, or find it with list_documents.` };
       const schema = await docSchema(acc, doc);
+      if (voice) {
+        const byKey = new Map(schema.fields.map((f) => [f.key, f.label]));
+        const filled: Record<string, string> = {};
+        for (const [k, v] of Object.entries(doc.fields)) {
+          if (String(v).trim()) filled[byKey.get(k) ?? k] = String(v);
+        }
+        return {
+          document_id: doc.id,
+          title: doc.title,
+          status: doc.status,
+          filled,
+          missing_required: schema.missing(doc.fields),
+        };
+      }
       return {
         document_id: doc.id,
         type: doc.type,
@@ -429,9 +503,9 @@ export async function runTool(
     case "finalize_document": {
       const docId = String(input.document_id);
       const doc = await getDocument(acc, docId);
-      if (!doc) return { error: `Document ${docId} not found` };
-      const fschema = await docSchema(acc, doc);
-      const missing = fschema.missing(doc.fields);
+      if (!doc) return { error: `Document ${docId} not found — use the id returned by create_document, or find it with list_documents.` };
+      // Uploaded forms have no required-field metadata — skip the template fetch.
+      const missing = !doc.template_id && isDocType(doc.type) ? missingLabels(doc.type, doc.fields) : [];
       if (missing.length) {
         return {
           ok: false,
@@ -440,28 +514,29 @@ export async function runTool(
         };
       }
       // Don't file a totally blank uploaded form.
-      if (fschema.uploaded && Object.values(doc.fields).every((v) => !String(v).trim())) {
+      if (doc.template_id && Object.values(doc.fields).every((v) => !String(v).trim())) {
         return {
           ok: false,
           message: "Set at least one field on this form before filing it.",
         };
       }
       const updated = await updateDocument(acc, docId, { status: "completed" });
-      await rememberParties(acc, doc); // ensure parties + property are remembered
+      if (voice) defer(() => rememberParties(acc, doc));
+      else await rememberParties(acc, doc); // ensure parties + property are remembered
       await logActivity(acc, "document_filed", `Filed “${updated.title || "a document"}”.`, { actorId: ctx.actorId });
       return {
         ok: true,
         document_id: updated.id,
         status: updated.status,
-        message: "Document filed to the dashboard. The agent can download the filled PDF.",
+        message: "Filed. It can be downloaded from the dashboard, texted, emailed, or sent for signature.",
       };
     }
 
     case "send_document": {
       const docId = String(input.document_id);
       const doc = await getDocument(acc, docId);
-      if (!doc) return { error: `Document ${docId} not found` };
-      const missing = (await docSchema(acc, doc)).missing(doc.fields);
+      if (!doc) return { error: `Document ${docId} not found — use the id returned by create_document, or find it with list_documents.` };
+      const missing = !doc.template_id && isDocType(doc.type) ? missingLabels(doc.type, doc.fields) : [];
       if (missing.length) {
         return { ok: false, missing_required: missing, message: "Fill the required fields before sending." };
       }
@@ -496,13 +571,12 @@ export async function runTool(
     case "email_document": {
       const docId = String(input.document_id);
       const doc = await getDocument(acc, docId);
-      if (!doc) return { error: `Document ${docId} not found` };
-      const eschema = await docSchema(acc, doc);
-      const miss = eschema.missing(doc.fields);
+      if (!doc) return { error: `Document ${docId} not found — use the id returned by create_document, or find it with list_documents.` };
+      const miss = !doc.template_id && isDocType(doc.type) ? missingLabels(doc.type, doc.fields) : [];
       if (miss.length) {
         return { ok: false, missing_required: miss, message: "Fill the required fields before sending." };
       }
-      if (eschema.uploaded && Object.values(doc.fields).every((v) => !String(v).trim())) {
+      if (doc.template_id && Object.values(doc.fields).every((v) => !String(v).trim())) {
         return { ok: false, message: "Fill at least one field before sending." };
       }
       let to = String(input.to_email || "").trim();
@@ -530,11 +604,9 @@ export async function runTool(
     }
 
     case "request_signature": {
-      const docId = String(input.document_id);
-      const doc = await getDocument(acc, docId);
-      if (!doc) return { error: `Document ${docId} not found` };
+      // requestSignature fetches and validates the document itself — no pre-fetch.
       const rs = await requestSignature(acc, {
-        documentId: docId,
+        documentId: String(input.document_id),
         signerName: String(input.signer_name || ""),
         signerEmail: (input.signer_email as string) || null,
         signerPhone: (input.signer_phone as string) || null,
@@ -547,12 +619,12 @@ export async function runTool(
       const docs = await listDocuments(acc);
       const q = String(input.query || "").toLowerCase().trim();
       const filtered = q ? docs.filter((d) => (d.title || "").toLowerCase().includes(q)) : docs;
-      return filtered.slice(0, 12).map((d) => ({
+      return filtered.slice(0, voice ? 8 : 12).map((d) => ({
         document_id: d.id,
         title: d.title,
         status: d.status,
         type: d.type === "uploaded" ? "uploaded form" : d.type,
-        updated_at: d.updated_at,
+        updated_at: voice ? d.updated_at.slice(0, 10) : d.updated_at,
       }));
     }
 

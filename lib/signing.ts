@@ -1,4 +1,6 @@
 import { createSignatureRequest, getDocument } from "@/lib/db";
+import { isDocType, missingRequired, userFields } from "@/lib/templates";
+import type { DocType } from "@/lib/types";
 import { makeSignToken } from "@/lib/share";
 import { sendEmail, emailConfigured } from "@/lib/email";
 import { sendSms } from "@/lib/twilio";
@@ -30,6 +32,18 @@ export async function requestSignature(
   const doc = await getDocument(accountId, input.documentId);
   if (!doc) return { ok: false, message: "Document not found." };
 
+  // Never send a half-empty legal document out for signature. (Uploaded forms
+  // — including orphans whose template was deleted — have no required-field
+  // metadata, so only built-in types are checked.)
+  if (!doc.template_id && isDocType(doc.type)) {
+    const missingKeys = missingRequired(doc.type as DocType, doc.fields);
+    if (missingKeys.length) {
+      const fields = userFields(doc.type as DocType);
+      const labels = missingKeys.map((k) => fields.find((f) => f.key === k)?.label ?? k);
+      return { ok: false, message: `Fill the required fields first — still missing: ${labels.join(", ")}.` };
+    }
+  }
+
   const email = (input.signerEmail || "").trim();
   const phone = normalizePhone(input.signerPhone || "");
   if (email && !/.+@.+\..+/.test(email)) {
@@ -50,19 +64,23 @@ export async function requestSignature(
   const docName = doc.title || "a document";
   const who = input.signerName?.trim();
 
+  // Deliver by email and text in parallel — on a phone call the agent is
+  // waiting through this.
+  const [emailed, texted] = await Promise.all([
+    email && emailConfigured()
+      ? sendEmail({
+          to: email,
+          subject: `Signature requested: ${docName}`,
+          html: `<p>${who ? `${who}, you` : "You"}'ve been asked to sign “${docName}”.</p><p><a href="${url}">Review &amp; sign it here</a> — it takes under a minute.</p><p>— Pheme</p>`,
+        })
+      : Promise.resolve(null),
+    phone
+      ? sendSms(phone, `${who ? who + ", you" : "You"}'ve been asked to sign "${docName}". Review & sign: ${url}`)
+      : Promise.resolve(null),
+  ]);
   const delivered: string[] = [];
-  if (email && emailConfigured()) {
-    const sent = await sendEmail({
-      to: email,
-      subject: `Signature requested: ${docName}`,
-      html: `<p>${who ? `${who}, you` : "You"}'ve been asked to sign “${docName}”.</p><p><a href="${url}">Review &amp; sign it here</a> — it takes under a minute.</p><p>— Pheme</p>`,
-    });
-    if (sent.ok) delivered.push(`emailed ${email}`);
-  }
-  if (phone) {
-    const sent = await sendSms(phone, `${who ? who + ", you" : "You"}'ve been asked to sign "${docName}". Review & sign: ${url}`);
-    if (sent.ok) delivered.push(`texted ${phone}`);
-  }
+  if (emailed?.ok) delivered.push(`emailed ${email}`);
+  if (texted?.ok) delivered.push(`texted ${phone}`);
 
   if (!delivered.length) {
     return {

@@ -364,15 +364,17 @@ export interface Dossier {
 
 /** Everything we remember about a person, found by fuzzy name. */
 export async function getClientDossier(accountId: string, name: string): Promise<Dossier | null> {
-  const clients = await listClients(accountId);
+  // The docs fetch doesn't depend on which client matches — run both at once.
+  const [clients, docs] = await Promise.all([
+    listClients(accountId),
+    listDocuments(accountId),
+  ]);
   const matches = clients.filter(
     (c) => nameMatches(c.full_name, name) || nameMatches(c.secondary_name, name),
   );
   if (!matches.length) return null;
   matches.sort((a, b) => (b.last_seen_at ?? "").localeCompare(a.last_seen_at ?? ""));
   const client = matches[0];
-
-  const docs = await listDocuments(accountId);
   const theirs = docs.filter(
     (d) =>
       d.client_id === client.id ||
@@ -426,14 +428,20 @@ export async function rememberAboutClient(
   return { ...client, preferences: prefs };
 }
 
-/** Compact "people you know" digest to prime the assistant before the agent speaks. */
+/**
+ * Compact "people you know" digest to prime the assistant before the agent
+ * speaks. On voice this runs on the call-pickup critical path, so the two
+ * queries go out in parallel.
+ */
 export async function buildMemoryDigest(accountId: string, limit = 12): Promise<string> {
-  const clients = await listClients(accountId);
+  const [clients, docs] = await Promise.all([
+    listClients(accountId),
+    listDocuments(accountId),
+  ]);
   if (!clients.length) return "";
   clients.sort((a, b) =>
     (b.last_seen_at ?? b.created_at).localeCompare(a.last_seen_at ?? a.created_at),
   );
-  const docs = await listDocuments(accountId);
   const lines = clients.slice(0, limit).map((c) => {
     const lastDoc = docs.find(
       (d) =>
@@ -656,11 +664,13 @@ export async function updateDocument(
   accountId: string,
   docId: string,
   patch: Partial<Pick<DocumentRecord, "fields" | "status" | "title" | "client_id">>,
+  /** Pass the already-fetched document to skip the merge re-fetch (hot voice path). */
+  existing?: DocumentRecord | null,
 ): Promise<DocumentRecord> {
   // Merge fields with existing values so partial updates accumulate.
   let nextFields = patch.fields;
   if (patch.fields) {
-    const current = await getDocument(accountId, docId);
+    const current = existing ?? (await getDocument(accountId, docId));
     nextFields = { ...(current?.fields ?? {}), ...patch.fields };
   }
   const { data, error } = await admin()

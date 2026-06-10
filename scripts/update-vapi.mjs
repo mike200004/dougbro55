@@ -1,4 +1,5 @@
-// Update the existing Vapi assistant: faster model, no greeting, terse prompt.
+// Push the full voice-agent configuration to the live Vapi assistant + phone
+// number. Field names validated against Vapi's live OpenAPI spec (2026-06).
 // Run: node scripts/update-vapi.mjs
 import { readFileSync } from "fs";
 
@@ -13,25 +14,45 @@ const env = Object.fromEntries(
 );
 
 const VAPI_KEY = env.VAPI_PRIVATE_KEY;
+const SECRET = env.VAPI_SERVER_SECRET || "";
 const ASSISTANT_ID = "8e46aebd-e589-4d6f-a614-7e2dfdfc621a";
-const WEBHOOK = "https://pheme.deals/api/voice/tools";
+const PHONE_NUMBER = "+14752703374";
+const TOOLS_URL = "https://pheme.deals/api/voice/tools";
+const ASSISTANT_URL = "https://pheme.deals/api/voice/assistant";
 
-const server = { url: WEBHOOK, timeoutSeconds: 20 };
-const fn = (name, description, parameters) => ({
+const headers = SECRET ? { "x-vapi-secret": SECRET } : undefined;
+
+// ---------------------------------------------------------------------------
+// Tools — each with spoken filler messages so the caller never sits in silence.
+// `say` = spoken when the tool starts (variants picked at random); slow tools
+// also get a delayed "still working" line. No request-complete: the model
+// reacts to the real result.
+// ---------------------------------------------------------------------------
+const fn = (name, description, parameters, opts = {}) => ({
   type: "function",
   function: { name, description, parameters },
-  server,
+  server: { url: TOOLS_URL, timeoutSeconds: opts.timeout ?? 20, ...(headers ? { headers } : {}) },
+  messages: [
+    ...(opts.say ? opts.say.map((content) => ({ type: "request-start", content })) : []),
+    {
+      type: "request-response-delayed",
+      content: opts.delayedSay ?? "One sec.",
+      timingMilliseconds: opts.delayed ?? 2500,
+    },
+    { type: "request-failed", content: opts.failedSay ?? "Hmm, that didn't go through — one sec." },
+  ],
 });
 
 const tools = [
+  { type: "endCall" },
   fn("get_agent_profile", "Get the agent's own profile (broker/agency name, license, address, email, phone). Auto-fills the broker side; only call if actually needed.", { type: "object", properties: {} }),
-  fn("list_clients", "List the agent's saved clients. Only call if the agent refers to an existing client.", { type: "object", properties: {} }),
-  fn("recall_client", "Recall everything you remember about a person by name (even a partial/family name like 'the Johnsons'): contact, role, preferences, and past deals/properties. Call this the instant a client or property is mentioned so you can reuse what you know instead of re-asking.", {
+  fn("list_clients", "List the agent's saved clients (names + roles). Only call if the agent refers to an existing client you can't recall by name.", { type: "object", properties: {} }),
+  fn("recall_client", "Recall everything about a person by name — even partial/family names ('the Johnsons') or a name you may have misheard; matching is fuzzy and the stored spelling wins. Returns contact info, role, preferences, and past deals. Call the INSTANT a person or property is mentioned.", {
     type: "object",
     properties: { name: { type: "string", description: "Person or family name to recall." } },
     required: ["name"],
   }),
-  fn("remember_about_client", "Save a freeform fact/preference about a person so you know it next time (e.g. 'pre-approved to 900k', 'wants 3BR in Darien', 'prefers texts').", {
+  fn("remember_about_client", "Save a fact/preference about a person for next time (e.g. 'pre-approved to 900k', 'prefers texts').", {
     type: "object",
     properties: { name: { type: "string" }, note: { type: "string" } },
     required: ["name", "note"],
@@ -47,8 +68,8 @@ const tools = [
     },
     required: ["full_name"],
   }),
-  fn("list_form_templates", "List the agent's own uploaded forms (e.g. a SmartMLS form or a brokerage document) that can be filled. Call this when the agent refers to a form that isn't in the built-in library.", { type: "object", properties: {} }),
-  fn("create_document", "Start a new document. Use `type` for a document from the built-in library, OR `template_name`/`template_id` to start a copy of one of the agent's uploaded forms. Returns the fields to collect.", {
+  fn("list_form_templates", "List the agent's own uploaded forms (e.g. a SmartMLS form or a brokerage document) that can be filled. Call when they mention a form that isn't in the built-in library.", { type: "object", properties: {} }),
+  fn("create_document", "Start a new document. Use `type` for the built-in library, OR `template_name`/`template_id` for one of the agent's uploaded forms. Returns the exact fields to collect — never guess fields.", {
     type: "object",
     properties: {
       type: {
@@ -67,44 +88,44 @@ const tools = [
       client_id: { type: "string", description: "Optional client to associate." },
       title: { type: "string" },
     },
-  }),
-  fn("set_document_fields", "Set/update field values on a document. Returns remaining required fields.", {
+  }, { say: ["Okay — pulling that one up.", "On it."], delayedSay: "Almost there.", delayed: 4000 }),
+  fn("set_document_fields", "Set/update field values on a document (the field labels work as keys). Returns remaining required fields. Call this every two or three answers — don't hold the whole deal in your head.", {
     type: "object",
     properties: {
       document_id: { type: "string" },
-      fields: { type: "object", description: "Map of field key -> string value.", additionalProperties: { type: "string" } },
+      fields: { type: "object", description: "Map of field label/key -> string value.", additionalProperties: { type: "string" } },
     },
     required: ["document_id", "fields"],
-  }),
-  fn("get_document", "Get a document's values, field schema, and missing required fields.", {
+  }, { delayedSay: "Got it — writing that in.", delayed: 2500 }),
+  fn("get_document", "Get a document's filled values and missing required fields.", {
     type: "object",
     properties: { document_id: { type: "string" } },
     required: ["document_id"],
   }),
-  fn("finalize_document", "Mark a document complete and file it to the dashboard.", {
+  fn("finalize_document", "File a completed document (all required fields must be set). After filing it can be texted, emailed, or sent for signature.", {
     type: "object",
     properties: { document_id: { type: "string" } },
     required: ["document_id"],
-  }),
-  fn("send_document", "Text the completed document as a secure download link. To someone else, give their phone; if they say 'text it to me', omit to_phone and it goes to the agent's own phone. Fill required fields first.", {
+  }, { say: ["Filing it now."], timeout: 45 }),
+  fn("send_document", "Text the completed document as a secure link — to a recipient's number, or to the agent themselves when no number is given ('text it to me').", {
     type: "object",
     properties: {
       document_id: { type: "string" },
       to_phone: { type: "string", description: "Recipient's phone. Omit to text the agent themselves." },
-      recipient_name: { type: "string", description: "Optional recipient name." },
+      recipient_name: { type: "string" },
     },
     required: ["document_id"],
-  }),
-  fn("email_document", "Email the completed document as a PDF attachment. To someone else, give their email; if they say 'email it to me', omit to_email and it goes to the agent's email on file. Fill required fields first.", {
+  }, { say: ["Texting it over now."], delayedSay: "Still sending — one sec.", delayed: 6000, failedSay: "That text didn't go through — let me try once more.", timeout: 45 }),
+  fn("email_document", "Email the completed document as a PDF attachment — to a recipient, or to the agent themselves when no email is given ('email it to me').", {
     type: "object",
     properties: {
       document_id: { type: "string" },
       to_email: { type: "string", description: "Recipient email. Omit to email the agent themselves." },
-      recipient_name: { type: "string", description: "Optional recipient name." },
+      recipient_name: { type: "string" },
     },
     required: ["document_id"],
-  }),
-  fn("request_signature", "Send a document out for e-signature ('send it to Bob for signature'). The signer gets a secure link to review and sign; the executed copy returns to the agent automatically. Needs the signer's email or mobile.", {
+  }, { say: ["Sending that off — give me a few seconds."], delayedSay: "Almost done — attaching the PDF.", delayed: 7000, timeout: 60 }),
+  fn("request_signature", "Send a document for e-signature. The signer gets a secure link by email and/or text; the executed copy comes back automatically and the agent is notified. Needs the signer's email or mobile.", {
     type: "object",
     properties: {
       document_id: { type: "string" },
@@ -113,62 +134,167 @@ const tools = [
       signer_phone: { type: "string" },
     },
     required: ["document_id", "signer_name"],
-  }),
-  fn("list_documents", "List the agent's recent documents (title, status). Use when they reference an earlier document by name.", {
+  }, { say: ["Sending it out for signature."], delayedSay: "One more second.", delayed: 7000, timeout: 60 }),
+  fn("list_documents", "List recent documents (title, status). Use when they reference an earlier document by name or ask what got filed.", {
     type: "object",
     properties: { query: { type: "string", description: "Optional title filter." } },
   }),
 ];
 
-const systemPrompt = `You are Pheme — a warm, sharp assistant for real estate agents and brokers, helping them by phone while they're on the go. You handle deal paperwork AND the office's business paperwork.
+// ---------------------------------------------------------------------------
+// The voice system prompt. One template variable: {{memoryDigest}} — the
+// assistant-request webhook fills it with the full caller context (date,
+// identity, in-progress draft, client memory, registration status).
+// ---------------------------------------------------------------------------
+const systemPrompt = `You are Pheme — a warm, sharp assistant for real estate agents and brokers, on the phone. You handle their deal paperwork and office paperwork hands-free. Assume the caller may be driving.
 
-Documents (create_document returns the exact fields to collect — ask for those, a couple at a time):
+CALLER CONTEXT (if blank or it looks like a placeholder, you simply have no saved context — rely on your tools):
+{{memoryDigest}}
+
+DOCUMENTS you can start instantly with create_document (it returns the exact fields to collect — never guess fields):
 - Deals: buyer_rep (buyer representation), purchase (purchase agreement), dual_agency (dual agency consent), listing_agreement (exclusive right to sell), general_addendum (addendum/amendment), escalation_addendum, mutual_release (terminate a contract), deposit_receipt (earnest money receipt).
 - Office/broker: referral_agreement (broker referral fee), commission_disbursement (CDA), independent_contractor (new salesperson ICA).
 - Leasing/compliance: lead_paint_disclosure, rental_application.
-- Checkbox fields: say the value "Yes" to check a box.
-- The agent may also have their own uploaded forms — use list_form_templates if they mention one.
+- They may also have uploaded their own forms — list_form_templates when they mention a form not listed here. If a form doesn't exist anywhere, say so plainly and offer the closest one — never pretend.
 
-Personality (this matters — you sounded robotic before): Sound like a real, friendly person on their team — someone they're glad picked up. Be warm and natural, use contractions, and react like a human: "Hey!", "Oh nice", "Got it", "Perfect", "Congrats!". Keep replies short and easy to listen to (a sentence or two), but never clipped or robotic. Ask for one or two things at a time. Don't recite fields like a checklist or read long lists aloud — weave confirmations into normal conversation. Mirror their energy; a little warmth goes a long way.
+SPEAKING — everything you produce is HEARD, not read:
+- Never speak ids, links, URLs, tokens, field keys, or anything technical. Say "I texted you the link" — never the link itself. Ids in tool results are for you, not them.
+- Numbers the way agents say them: $925,000 → "nine twenty-five"; $1,250,000 → "one point two five million"; 2.5 → "two and a half percent". Dates in words ("Friday, June twelfth"). Phone numbers digit by digit. Store full numerals ("925,000", "12/31/2026").
+- Never list or enumerate aloud — no bullets, no "first… second…". Fold needs into one sentence: "I just need the price and the closing date."
+- One question per turn, and put the question LAST in your sentence. Naturally paired items may share a turn ("when does it start, and when does it end?"). One or two short sentences per reply.
+- Vary your acknowledgments — never open consecutive turns the same way, and no "Hey" after the greeting. If they interrupt, drop your sentence and follow them.
+- Never announce that you're about to do something — the system speaks a short line while a tool runs ("Filing it now."). Just call the tool.
 
-Efficiency (important for speed): Minimize tool calls. Do NOT call list_clients or get_agent_profile unless actually needed. Gather the required info first, then create the document ONCE and set ALL fields in a single set_document_fields call, then finalize. Create exactly one document per request — reuse the returned id; never create duplicates. Never invent document ids — use ids returned by tools.
+WORKFLOW:
+- The moment you know which document they need, call create_document. Collect conversationally and push values with set_document_fields every two or three answers — calls drop; never hold a whole deal in your head. Use the document_id the tool returned; one document per request; never invent ids.
+- If the caller context shows a DOCUMENT IN PROGRESS, continue that one — only start fresh if they clearly want a different document.
+- Confirm ONCE, then act: before you finalize, send to a third party, or request a signature, give one compact recap — the people, the property, the money, the dates — and get a clear yes. Don't read each answer back while collecting; a quick varied "got it" is plenty. After the yes, run the remaining tools without narrating each one.
+- Resolve relative dates ("end of year", "next Friday") against today's date in the caller context. If the caller context has NO "Today is" line, ask for the explicit date instead of guessing. Checkbox fields: set the value "Yes" to check; confirm consent checkboxes out loud in plain words first.
+- The broker/agency side of every form auto-fills from their profile — never ask for it.
+- Delivery: send_document texts a secure link (no recipient = to the caller themselves); email_document emails the PDF; request_signature sends a signing link and the executed copy comes back automatically. After filing, offer the next step — "Want me to text it to you, or send it out for signature?" — don't mention dashboards unless they ask.
 
-Data: Resolve relative dates against today; store like "12/31/2026". Store currency/percent as just the number (price "1,250,000", fee "2.5"). The broker/agency side auto-fills — never ask for it. "File it" = finalize_document (saves to the dashboard). To deliver it: send_document texts a secure link; email_document emails the PDF. To someone else, give their number/email; if they say "text/email it to me", call the tool with NO recipient and it goes to their own phone/email. To get it SIGNED ("send it to Bob for signature"), use request_signature with the signer's name + email or mobile — the executed copy comes back automatically. If they mention an earlier document by name, find it with list_documents. Fill required fields first. When done, confirm in a few words.
+NAMES AND NUMBERS YOU HEAR (the transcript WILL garble them):
+- The moment a person is named, call recall_client — a rough match to someone you already know beats re-asking, and the stored spelling wins over what you heard. Greet matches with what you remember in one sentence and offer to reuse it; never make them repeat what you know.
+- Spell-confirm NEW names going onto documents ("That's C-O-L-E-T-T-E?"). New emails: read back once, slowly; if it's still wrong after two tries, offer to text a link to a phone number instead. New phone numbers: repeat all ten digits back before sending anything to them.
+- When you learn something personal (budget, timeline, preferences, life details), call remember_about_client so you know it next time.
 
-People you already know on this account (recall and reuse — the instant one is mentioned, say what you remember and offer to reuse it):
-{{memoryDigest}}
+WHEN SOMETHING FAILS: never read an error message aloud. Quietly retry once. If it still fails, say it in plain words and offer the nearest alternative — text failed → offer email; email not set up → text the link; can't find a document → ask what it was called and use list_documents. If create_document says a type is unknown or unavailable, that document isn't enabled on this account yet — say so and offer the buyer rep, purchase agreement, or dual agency consent instead. NEVER tell them something was created, filed, or sent unless a tool actually returned success — no false promises, ever.
 
-Memory (this is your magic): You already know the people listed above. The instant the agent names someone (even a partial like "the Johnsons") who isn't listed, call recall_client with that name. When you recognize someone, jump in with what you remember (role, last property, key preferences) in one sentence and offer to reuse it — don't make them repeat it. Beat them to it: pre-fill from memory, then confirm. When you learn something personal (budget, beds, timeline, preference), call remember_about_client so you know it next time.
+WRAPPING UP: when they signal they're done ("that's all", "I'm good", "thanks, bye"), give a one-line recap of what got done — "You're set: listing filed and the link's on your phone" — then call endCall. Don't add your own goodbye; the system speaks the goodbye line when the call ends. Ask "anything else?" at most once per call. They also get a text recap after the call.
 
-Access: If any tool returns "caller_not_registered", tell the caller their number isn't registered and to sign up at pheme.deals, then end politely. Don't collect any information from unregistered callers.`;
+UNREGISTERED CALLERS: if the caller context says UNREGISTERED, or any tool returns caller_not_registered — don't collect personal or deal information and don't call other tools. Their number isn't on a Pheme account yet: they can sign up at pheme dot deals (pronounce it "FEE-mee dot deals"), or if they're an existing user on a new phone, update their number in Settings on the website. Then say goodbye warmly and call endCall.`;
 
-const body = {
-  // The assistant MUST speak first on a phone call, or the caller just hears
-  // dead air. Warm + human, but quick.
-  firstMessage: "Hey, it's Pheme — what are we working on today?",
+// ---------------------------------------------------------------------------
+// Assistant PATCH body
+// ---------------------------------------------------------------------------
+const makeBody = (model) => ({
+  firstMessage: "Hey, it's Pheme — what are we working on?",
   firstMessageMode: "assistant-speaks-first",
-  voice: { provider: "openai", voiceId: "alloy" },
-  transcriber: { provider: "deepgram", model: "nova-2", language: "en" },
+  firstMessageInterruptionsEnabled: true,
+  voice: {
+    provider: "11labs",
+    voiceId: "paula",
+    model: "eleven_turbo_v2_5",
+    fallbackPlan: { voices: [{ provider: "openai", voiceId: "nova" }] },
+  },
+  transcriber: {
+    provider: "deepgram",
+    model: "nova-3",
+    language: "en",
+    numerals: true,
+    keyterm: [
+      "Pheme", "buyer rep", "dual agency", "addendum", "escalation clause",
+      "mutual release", "earnest money", "escrow", "CDA", "commission disbursement",
+      "referral fee", "listing agreement", "SmartMLS", "co-broke", "lead paint",
+      "rental application", "e-signature", "pre-approved", "closing date", "binder",
+    ],
+  },
   backgroundSound: "off",
+  backgroundSpeechDenoisingPlan: { smartDenoisingPlan: { enabled: true } },
+  startSpeakingPlan: {
+    waitSeconds: 0.4,
+    smartEndpointingPlan: { provider: "livekit" },
+  },
+  stopSpeakingPlan: { numWords: 0, voiceSeconds: 0.25, backoffSeconds: 1 },
+  hooks: [
+    {
+      // 25s, not lower: the clock only resets on USER speech, so during a
+      // finalize+send tool chain the caller is legitimately silent for 10s+.
+      on: "customer.speech.timeout",
+      options: { timeoutSeconds: 25, triggerMaxCount: 3, triggerResetMode: "onUserSpeech" },
+      do: [{ type: "say", exact: ["Still with me?", "No rush — I'm here.", "Take your time."] }],
+    },
+  ],
+  maxDurationSeconds: 1500,
+  endCallMessage: "Bye for now!",
+  analysisPlan: {
+    summaryPlan: {
+      enabled: true,
+      timeoutSeconds: 10,
+      messages: [
+        {
+          role: "system",
+          content:
+            "You write the post-call recap text message that Pheme (a real-estate AI assistant) sends TO THE AGENT after their phone call. Second person, under 280 characters, no greeting, no sign-off. Lead with what got DONE (documents created/filed, texts/emails sent, signatures requested, clients remembered) with the key names/numbers, then anything still needed. If nothing got done, one line on what was discussed.",
+        },
+        { role: "user", content: "Transcript:\n\n{{transcript}}\n\nEnded reason: {{endedReason}}" },
+      ],
+    },
+  },
   model: {
     provider: "openai",
-    model: "gpt-4o-mini",
+    model,
     temperature: 0.3,
-    maxTokens: 250,
+    // Caps the WHOLE completion including tool-call JSON — a batched
+    // set_document_fields with long names/addresses needs headroom. Spoken
+    // brevity is enforced by the prompt, not this ceiling.
+    maxTokens: 500,
     messages: [{ role: "system", content: systemPrompt }],
     tools,
   },
-  startSpeakingPlan: { waitSeconds: 0.3 },
-};
-
-const res = await fetch(`https://api.vapi.ai/assistant/${ASSISTANT_ID}`, {
-  method: "PATCH",
-  headers: { Authorization: `Bearer ${VAPI_KEY}`, "Content-Type": "application/json" },
-  body: JSON.stringify(body),
 });
-const text = await res.text();
-let json;
-try { json = JSON.parse(text); } catch { json = { raw: text }; }
-console.log("PATCH ASSISTANT:", res.status, res.ok
-  ? `model=${json.model?.model} firstMessageMode=${json.firstMessageMode} firstMessage="${json.firstMessage}"`
-  : JSON.stringify(json).slice(0, 900));
+
+async function patchAssistant() {
+  // Try the better model first; fall back if Vapi rejects the enum.
+  for (const model of ["gpt-4.1-mini", "gpt-4o-mini"]) {
+    const body = makeBody(model);
+    const res = await fetch(`https://api.vapi.ai/assistant/${ASSISTANT_ID}`, {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${VAPI_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const text = await res.text();
+    if (res.ok) {
+      const json = JSON.parse(text);
+      console.log(`PATCH ASSISTANT: ${res.status} model=${json.model?.model} voice=${json.voice?.provider}/${json.voice?.voiceId} transcriber=${json.transcriber?.model} tools=${json.model?.tools?.length}`);
+      return true;
+    }
+    console.error(`PATCH ASSISTANT (${model}): ${res.status} ${text.slice(0, 600)}`);
+    if (!text.includes("model")) return false; // not a model-enum problem — don't retry
+  }
+  return false;
+}
+
+async function patchNumber() {
+  const nums = await (await fetch("https://api.vapi.ai/phone-number", {
+    headers: { Authorization: `Bearer ${VAPI_KEY}` },
+  })).json();
+  const num = Array.isArray(nums) ? nums.find((n) => n.number === PHONE_NUMBER) : null;
+  if (!num) {
+    console.error("PATCH NUMBER: phone number not found");
+    return;
+  }
+  const res = await fetch(`https://api.vapi.ai/phone-number/${num.id}`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${VAPI_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      server: { url: ASSISTANT_URL, timeoutSeconds: 10, ...(headers ? { headers } : {}) },
+    }),
+  });
+  const text = await res.text();
+  console.log(`PATCH NUMBER: ${res.status}${res.ok ? "" : " " + text.slice(0, 400)}`);
+}
+
+const ok = await patchAssistant();
+if (ok) await patchNumber();
+else process.exit(1);
