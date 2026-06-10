@@ -87,16 +87,6 @@ export interface SignatureRequest {
   signed_at: string | null;
 }
 
-export interface Subscription {
-  account_id: string;
-  stripe_customer_id: string | null;
-  stripe_subscription_id: string | null;
-  status: string;
-  price_id: string | null;
-  current_period_end: string | null;
-  updated_at: string;
-}
-
 export interface DocumentRecord {
   id: string;
   account_id: string;

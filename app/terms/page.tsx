@@ -38,10 +38,10 @@ export default function TermsPage() {
           to contact them, no attempting to access other accounts’ data, and no abuse of the
           service’s messaging features.
         </p>
-        <h3 className="cardTitle">Billing</h3>
+        <h3 className="cardTitle">Cost</h3>
         <p style={{ marginBottom: 14 }}>
-          During early access Pheme is free. If you later subscribe to a paid plan, pricing
-          and renewal terms are shown at checkout and manageable from Settings.
+          Pheme is currently free to use. If we introduce paid plans in the future, we’ll
+          give you notice and the terms before anything is charged.
         </p>
         <h3 className="cardTitle">Disclaimers</h3>
         <p style={{ marginBottom: 14 }}>

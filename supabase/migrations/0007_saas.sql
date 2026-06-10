@@ -44,18 +44,3 @@ drop policy if exists "account signature_requests" on signature_requests;
 create policy "account signature_requests" on signature_requests for all
   using (account_id in (select account_id from account_members where id = auth.uid()))
   with check (account_id in (select account_id from account_members where id = auth.uid()));
-
--- Stripe subscription state (written by the webhook via service role).
-create table if not exists subscriptions (
-  account_id uuid primary key references auth.users(id) on delete cascade,
-  stripe_customer_id text,
-  stripe_subscription_id text,
-  status text not null default 'none',
-  price_id text,
-  current_period_end timestamptz,
-  updated_at timestamptz not null default now()
-);
-alter table subscriptions enable row level security;
-drop policy if exists "own subscription" on subscriptions;
-create policy "own subscription" on subscriptions for select
-  using (account_id in (select account_id from account_members where id = auth.uid()));

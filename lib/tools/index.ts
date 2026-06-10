@@ -17,7 +17,6 @@ import {
 import { logActivity } from "@/lib/activity";
 import { defer } from "@/lib/defer";
 import { requestSignature } from "@/lib/signing";
-import { getPlan, UPGRADE_MESSAGE } from "@/lib/billing";
 import { getTemplate, isDocType, missingRequired, templateList, userFields } from "@/lib/templates";
 import type { DocumentRecord } from "@/lib/types";
 import { makeShareToken } from "@/lib/share";
@@ -361,8 +360,6 @@ export async function runTool(
     }
 
     case "create_document": {
-      const plan = await getPlan(acc);
-      if (!plan.active) return { error: UPGRADE_MESSAGE };
       // Copy of an uploaded form template?
       const templateRef = (input.template_id as string) || (input.template_name as string);
       if (templateRef) {

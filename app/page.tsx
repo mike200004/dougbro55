@@ -9,7 +9,6 @@ import {
   memberNames,
 } from "@/lib/db";
 import { listActivity } from "@/lib/activity";
-import { getPlan } from "@/lib/billing";
 import { templateCategories, templateList, getTemplate } from "@/lib/templates";
 import { getAccount } from "@/lib/auth";
 import { newDocumentAction, startFromTemplateAction } from "./actions";
@@ -31,7 +30,7 @@ export default async function Home() {
   const account = await getAccount();
   if (!account) return <Landing />;
   const { accountId } = account;
-  const [profile, clients, documents, names, forms, members, sigs, activity, plan] =
+  const [profile, clients, documents, names, forms, members, sigs, activity] =
     await Promise.all([
       getProfile(accountId),
       listClients(accountId),
@@ -41,7 +40,6 @@ export default async function Home() {
       listMembers(accountId),
       listSignatureRequests(accountId),
       listActivity(accountId, 8),
-      getPlan(accountId),
     ]);
 
   const monthStart = new Date();
@@ -62,19 +60,6 @@ export default async function Home() {
           <Link href="/assistant">AI assistant</Link> to fill one out hands-free.
         </p>
       </header>
-
-      {plan.plan === "trial" && (
-        <div className="notice">
-          You’re on a free trial — {plan.daysLeft} day{plan.daysLeft === 1 ? "" : "s"} left.
-          Upgrade anytime in <Link href="/settings">Settings</Link>.
-        </div>
-      )}
-      {plan.plan === "expired" && (
-        <div className="notice">
-          Your trial has ended — upgrade in <Link href="/settings">Settings</Link> to keep
-          filing documents.
-        </div>
-      )}
 
       <Onboarding
         phone={PHEME_NUMBER}

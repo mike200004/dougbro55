@@ -24,7 +24,6 @@ import {
 } from "@/lib/db";
 import { logActivity } from "@/lib/activity";
 import { requestSignature } from "@/lib/signing";
-import { createCheckoutSession, createPortalSession, getSubscription, stripeConfigured } from "@/lib/billing";
 import { admin } from "@/lib/supabase/admin";
 import { requireAccount, getSessionUser } from "@/lib/auth";
 import { normalizePhone } from "@/lib/phone";
@@ -441,36 +440,6 @@ export async function deleteTemplateAction(templateId: string) {
   revalidatePath("/");
 }
 
-// ---------------------------------------------------------------------------
-// Billing
-// ---------------------------------------------------------------------------
-
-export async function startCheckoutAction(): Promise<ActionResult & { url?: string }> {
-  const { accountId, email } = await requireAccount();
-  if (!stripeConfigured()) {
-    return { ok: false, error: "Billing isn't enabled yet — Pheme is free during early access." };
-  }
-  try {
-    const url = await createCheckoutSession(accountId, email || "");
-    return { ok: true, url };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Could not start checkout." };
-  }
-}
-
-export async function openBillingPortalAction(): Promise<ActionResult & { url?: string }> {
-  const { accountId } = await requireAccount();
-  const sub = await getSubscription(accountId);
-  if (!stripeConfigured() || !sub?.stripe_customer_id) {
-    return { ok: false, error: "No billing profile yet." };
-  }
-  try {
-    const url = await createPortalSession(sub.stripe_customer_id);
-    return { ok: true, url };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Could not open the billing portal." };
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Account deletion (owner only — removes the whole account)

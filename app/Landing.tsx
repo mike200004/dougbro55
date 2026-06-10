@@ -38,7 +38,7 @@ const FAQ = [
   },
   {
     q: "What does it cost?",
-    a: "Pheme is free during early access — every feature included. Paid plans will come later, with plenty of notice.",
+    a: "Pheme is free to use right now — every feature included, no credit card required.",
   },
   {
     q: "Can my assistant use it too?",
@@ -161,14 +161,13 @@ export default function Landing() {
         ))}
       </div>
 
-      <h2 className="sectionHeading">Simple pricing</h2>
+      <h2 className="sectionHeading">Free to get started</h2>
       <div className="card" style={{ maxWidth: 560, margin: "0 auto", textAlign: "center", padding: 32 }}>
-        <div className="cardKicker">Early access</div>
+        <div className="cardKicker">No credit card</div>
         <div className="cardTitle" style={{ fontSize: 40, margin: "10px 0 4px" }}>Free</div>
         <p className="cardBody" style={{ marginBottom: 18 }}>
-          Every feature included while Pheme is in early access — unlimited documents, form
-          uploads, e-signatures, client memory, and your team. Paid plans come later, with
-          plenty of notice.
+          Every feature included — unlimited documents, form uploads, e-signatures, client
+          memory, and your team. Just sign up and start filing.
         </p>
         <Link href="/signup" className="btn btnPrimary btnLg">Claim your account</Link>
       </div>

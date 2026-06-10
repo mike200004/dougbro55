@@ -24,8 +24,8 @@ export default function PrivacyPage() {
         <p style={{ marginBottom: 14 }}>
           We rely on a small set of processors to operate: Supabase (database & file
           storage), Vercel (hosting), OpenAI (AI processing of your instructions and
-          documents), Vapi (voice calls), Twilio (calls & SMS), Resend (email), and Stripe
-          (payments, if you subscribe). Each receives only what it needs to do its job.
+          documents), Vapi (voice calls), Twilio (calls & SMS), and Resend (email). Each
+          receives only what it needs to do its job.
         </p>
         <h3 className="cardTitle">Retention & deletion</h3>
         <p style={{ marginBottom: 14 }}>
