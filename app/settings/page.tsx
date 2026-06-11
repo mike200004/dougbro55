@@ -5,6 +5,7 @@ import { saveProfileAction } from "@/app/actions";
 import type { AgentProfile } from "@/lib/types";
 import Team from "./Team";
 import Security from "./Security";
+import SubmitButton from "@/app/SubmitButton";
 
 export const dynamic = "force-dynamic";
 
@@ -18,9 +19,14 @@ const FIELDS: { key: keyof AgentProfile; label: string; hint?: string }[] = [
   { key: "email", label: "Email" },
 ];
 
-export default async function SettingsPage() {
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ saved?: string }>;
+}) {
   const account = await requireAccount();
   const { accountId, role } = account;
+  const saved = (await searchParams)?.saved;
   const [profile, members] = await Promise.all([
     getProfile(accountId),
     listMembers(accountId),
@@ -37,6 +43,14 @@ export default async function SettingsPage() {
         </p>
       </div>
 
+      {saved === "profile" && <div className="notice">Profile saved ✓</div>}
+      {saved === "badphone" && (
+        <div className="notice">That phone number doesn’t look valid — the profile wasn’t saved.</div>
+      )}
+      {saved === "phonetaken" && (
+        <div className="notice">That phone number is already registered to another account — the profile wasn’t saved.</div>
+      )}
+
       <section>
         <h2 className="sectionTitle">Agent profile</h2>
         {isOwner ? (
@@ -50,7 +64,7 @@ export default async function SettingsPage() {
                 </div>
               ))}
             </div>
-            <button type="submit" className="btn btnPrimary">Save profile</button>
+            <SubmitButton pendingLabel="Saving…">Save profile</SubmitButton>
           </form>
         ) : (
           <div className="card">

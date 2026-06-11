@@ -133,6 +133,12 @@ export default function SignPage({ params }: { params: Promise<{ token: string }
           background: "#fff",
         }}
       />
+      {/* Mobile PDF viewers often show only the first page inline. */}
+      <p className="muted" style={{ textAlign: "center", marginTop: -8 }}>
+        <a href={`/api/sign/${token}?pdf=1`} target="_blank" rel="noreferrer">
+          Open the full document in a new tab ↗
+        </a>
+      </p>
 
       <div className="card">
         <div className="field">
@@ -174,11 +180,21 @@ export default function SignPage({ params }: { params: Promise<{ token: string }
 
         {error && <p style={{ color: "var(--danger)", marginBottom: 12 }}>{error}</p>}
 
-        <div className="btnRow">
+        <div className="btnRow" style={{ alignItems: "center" }}>
           <button className="btn btnPrimary btnLg" disabled={busy || !name.trim() || !consent} onClick={() => submit("sign")}>
             {busy ? "Signing…" : "Sign document"}
           </button>
-          <button className="btn btnDanger" disabled={busy} onClick={() => submit("decline")}>
+          <button
+            className="btnGhost btn"
+            style={{ color: "var(--danger)" }}
+            disabled={busy}
+            onClick={() => {
+              // Declining is irreversible — make sure it's deliberate.
+              if (confirm(`Decline to sign “${info.document_title}”? The sender will be notified, and this link will stop working.`)) {
+                void submit("decline");
+              }
+            }}
+          >
             Decline
           </button>
         </div>

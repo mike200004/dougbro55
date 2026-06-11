@@ -35,8 +35,27 @@ export default async function DocumentsPage({
   }
 
   const needle = q.toLowerCase().trim();
+  const matches = (d: (typeof docs)[number]) => {
+    if (!needle) return true;
+    // Title, type, and the party/property fields agents actually search by.
+    const hay = [
+      d.title,
+      d.type,
+      d.fields?.buyerName,
+      d.fields?.buyerNames,
+      d.fields?.sellerName,
+      d.fields?.applicantName,
+      d.fields?.clientName,
+      d.fields?.propertyAddress,
+      d.fields?.propertyDescription,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return hay.includes(needle);
+  };
   const filtered = docs.filter((d) => {
-    if (needle && !(d.title || "").toLowerCase().includes(needle)) return false;
+    if (!matches(d)) return false;
     switch (f) {
       case "archived":
         return d.archived;
@@ -67,21 +86,40 @@ export default async function DocumentsPage({
           <button className="btn" type="submit">Search</button>
         </form>
         <div className="btnRow" style={{ marginTop: 12 }}>
-          {FILTERS.map((tab) => (
-            <Link
-              key={tab.id}
-              href={`/documents?f=${tab.id}${q ? `&q=${encodeURIComponent(q)}` : ""}`}
-              className={`badge${f === tab.id ? " badgeDraft" : ""}`}
-              style={{ textDecoration: "none" }}
-            >
-              {tab.label}
-            </Link>
-          ))}
+          {FILTERS.map((tab) => {
+            const active = f === tab.id;
+            return (
+              <Link
+                key={tab.id}
+                href={`/documents?f=${tab.id}${q ? `&q=${encodeURIComponent(q)}` : ""}`}
+                className="btn"
+                style={{
+                  textDecoration: "none",
+                  padding: "6px 14px",
+                  fontSize: 13,
+                  ...(active
+                    ? { background: "var(--ink)", color: "var(--surface)", borderColor: "var(--ink)" }
+                    : {}),
+                }}
+              >
+                {tab.label}
+              </Link>
+            );
+          })}
         </div>
       </div>
 
       {filtered.length === 0 ? (
-        <p className="muted">Nothing here yet.</p>
+        <p className="muted">
+          {needle ? (
+            <>
+              No documents match “{q}”.{" "}
+              <Link href={`/documents?f=${f}`}>Clear search</Link>
+            </>
+          ) : (
+            "Nothing here yet."
+          )}
+        </p>
       ) : (
         <div>
           {filtered.map((doc) => {

@@ -36,6 +36,7 @@ export default function NewFormPage() {
   const [error, setError] = useState<string | null>(null);
   const [pages, setPages] = useState<RenderedPage[]>([]);
   const [fields, setFields] = useState<PlacedField[]>([]);
+  const [dragOver, setDragOver] = useState(false);
   const dragIdx = useRef<number | null>(null);
 
   function dragMove(e: React.PointerEvent<HTMLDivElement>, pi: number) {
@@ -49,6 +50,18 @@ export default function NewFormPage() {
     const x = Math.round(fracX * pg.wPt);
     const y = Math.round(pg.hPt - fracY * pg.hPt);
     setFields((fs) => fs.map((f, j) => (j === idx ? { ...f, placement: { ...f.placement, x, y } } : f)));
+  }
+
+  function pickFile(f: File | null) {
+    setFile(f);
+    setError(null);
+    if (f && f.size > 20 * 1024 * 1024) {
+      setError("That PDF is over 20MB — try a smaller copy.");
+      setFile(null);
+      return;
+    }
+    // Auto-name from the filename so the saved name is visible and editable.
+    if (f && !name.trim()) setName(f.name.replace(/\.pdf$/i, "").replace(/[-_]+/g, " "));
   }
 
   async function analyze() {
@@ -75,7 +88,7 @@ export default function NewFormPage() {
         fd.append("name", name);
         const res = await uploadFormAction(fd);
         if (res.ok) {
-          window.location.assign("/");
+          window.location.assign(`/?uploaded=${encodeURIComponent(name || file.name.replace(/\.pdf$/i, ""))}#your-forms`);
           return;
         }
         if (!("flat" in res) || !res.flat) {
@@ -88,6 +101,9 @@ export default function NewFormPage() {
 
       // Flat / scanned → render pages and detect fields with vision.
       setStatus("Rendering pages…");
+      if (doc.numPages > 6) {
+        setError(`Heads up — fields are auto-detected on the first 6 pages only (this PDF has ${doc.numPages}).`);
+      }
       const rendered: RenderedPage[] = [];
       const n = Math.min(doc.numPages, 6);
       for (let i = 1; i <= n; i++) {
@@ -99,11 +115,13 @@ export default function NewFormPage() {
         canvas.height = vp.height;
         const ctx = canvas.getContext("2d")!;
         await page.render({ canvasContext: ctx, viewport: vp }).promise;
-        rendered.push({ dataUrl: canvas.toDataURL("image/png"), wPt: vp1.width, hPt: vp1.height });
+        // JPEG keeps the detect payload ~5-10x smaller than PNG; the vision
+        // model doesn't need lossless.
+        rendered.push({ dataUrl: canvas.toDataURL("image/jpeg", 0.82), wPt: vp1.width, hPt: vp1.height });
       }
       setPages(rendered);
 
-      setStatus("Finding the fields (AI)…");
+      setStatus("Finding the fields (AI) — about 30 seconds…");
       const res = await fetch("/api/forms/detect", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -111,16 +129,23 @@ export default function NewFormPage() {
           pages: rendered.map((p) => ({ image: p.dataUrl, width: p.wPt, height: p.hPt })),
         }),
       });
-      const data = await res.json();
       if (!res.ok) {
-        setError(data.error || "Couldn't analyze the form.");
+        const data = await res.json().catch(() => null);
+        setError(data?.error || "Couldn't analyze the form — please try again.");
         setStage("pick");
         return;
       }
+      const data = await res.json();
       setFields(data.fields || []);
       setStage("review");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong reading the PDF.");
+      const msg =
+        e instanceof Error && e.name === "PasswordException"
+          ? "This PDF is password-protected — remove the password and upload it again."
+          : e instanceof Error && /Invalid PDF/i.test(e.message)
+            ? "That file doesn't look like a valid PDF."
+            : "Something went wrong reading the PDF — please try again.";
+      setError(msg);
       setStage("pick");
     }
   }
@@ -129,18 +154,23 @@ export default function NewFormPage() {
     if (!file) return;
     setStage("working");
     setStatus("Saving your form…");
-    const buf = await file.arrayBuffer();
-    const res = await saveOverlayTemplateAction({
-      name: name || file.name.replace(/\.pdf$/i, ""),
-      pdfBase64: toBase64(buf),
-      fields,
-    });
-    if (res.ok) {
-      window.location.assign("/");
-      return;
+    try {
+      const buf = await file.arrayBuffer();
+      const res = await saveOverlayTemplateAction({
+        name: name || file.name.replace(/\.pdf$/i, ""),
+        pdfBase64: toBase64(buf),
+        fields,
+      });
+      if (res.ok) {
+        window.location.assign(`/?uploaded=${encodeURIComponent(name || file.name.replace(/\.pdf$/i, ""))}#your-forms`);
+        return;
+      }
+      setError(res.error);
+      setStage("review");
+    } catch {
+      setError("Saving failed — the PDF may be too large to upload. Try again, or use a smaller copy.");
+      setStage("review");
     }
-    setError(res.error);
-    setStage("review");
   }
 
   return (
@@ -157,23 +187,71 @@ export default function NewFormPage() {
 
       {error && <div className="notice">{error}</div>}
 
-      {stage !== "review" && (
+      {stage === "working" && (
+        <div className="card" style={{ textAlign: "center", padding: 32 }}>
+          <div className="cardTitle" style={{ marginBottom: 6 }}>{status || "Working…"}</div>
+          <p className="muted" style={{ margin: 0 }}>
+            Fillable PDFs import instantly; flat or scanned forms take up to a minute while
+            the AI finds the blanks.
+          </p>
+        </div>
+      )}
+
+      {stage === "pick" && (
         <div className="card">
+          <label
+            htmlFor="pdf-input"
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragOver(true);
+            }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragOver(false);
+              pickFile(e.dataTransfer.files?.[0] ?? null);
+            }}
+            style={{
+              display: "block",
+              border: `2px dashed ${dragOver ? "var(--brand)" : "var(--border)"}`,
+              borderRadius: 8,
+              padding: 32,
+              textAlign: "center",
+              cursor: "pointer",
+              marginBottom: 16,
+              background: dragOver ? "var(--page)" : "transparent",
+            }}
+          >
+            {file ? (
+              <>
+                <div className="cardTitle" style={{ fontSize: 17, marginBottom: 4 }}>{file.name}</div>
+                <div className="muted">{(file.size / 1024 / 1024).toFixed(1)}MB · click to choose a different PDF</div>
+              </>
+            ) : (
+              <>
+                <div className="cardTitle" style={{ fontSize: 17, marginBottom: 4 }}>
+                  Drag a PDF here, or click to browse
+                </div>
+                <div className="muted">
+                  1. Fillable PDF → fields import instantly. 2. Flat or scanned → AI finds the
+                  blanks, you confirm and drag to fine-tune. Up to 20MB.
+                </div>
+              </>
+            )}
+            <input
+              id="pdf-input"
+              type="file"
+              accept="application/pdf,.pdf"
+              style={{ display: "none" }}
+              onChange={(e) => pickFile(e.target.files?.[0] ?? null)}
+            />
+          </label>
           <div className="field">
             <label className="label">Form name</label>
             <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. SmartMLS Listing Agreement" />
           </div>
-          <div className="field">
-            <label className="label">PDF file</label>
-            <input
-              className="input"
-              type="file"
-              accept="application/pdf,.pdf"
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            />
-          </div>
-          <button className="btn btnPrimary" onClick={analyze} disabled={stage === "working" || !file}>
-            {stage === "working" ? status || "Working…" : "Analyze form"}
+          <button className="btn btnPrimary" onClick={analyze} disabled={!file}>
+            Analyze form
           </button>
         </div>
       )}

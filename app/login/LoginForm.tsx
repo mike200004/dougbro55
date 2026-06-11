@@ -23,7 +23,10 @@ export default function LoginForm() {
       return;
     }
     // Full navigation so the server-rendered layout (nav) reflects auth state.
-    window.location.assign(params.get("next") || "/");
+    // Only same-origin paths — `next` must never become an open redirect.
+    const next = params.get("next");
+    const dest = next && next.startsWith("/") && !next.startsWith("//") ? next : "/";
+    window.location.assign(dest);
   }
 
   return (

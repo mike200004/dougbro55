@@ -5,6 +5,7 @@ import { requireAccount } from "@/lib/auth";
 import { getTemplate } from "@/lib/templates";
 import { updateClientAction } from "@/app/actions";
 import DeleteClientButton from "./DeleteClientButton";
+import SubmitButton from "@/app/SubmitButton";
 
 export const dynamic = "force-dynamic";
 
@@ -74,7 +75,7 @@ export default async function ClientDetailPage({
             <textarea className="textarea" name="notes" defaultValue={client.notes ?? ""} />
           </div>
           <div className="btnRow">
-            <button type="submit" className="btn btnPrimary">Save</button>
+            <SubmitButton pendingLabel="Saving…">Save</SubmitButton>
             <DeleteClientButton clientId={client.id} />
           </div>
         </form>
@@ -85,8 +86,8 @@ export default async function ClientDetailPage({
         {deals.length === 0 ? (
           <p className="muted">No documents yet for this client.</p>
         ) : (
-          deals.map((d, i) => (
-            <div key={i} className="row">
+          deals.map((d) => (
+            <Link key={d.id} href={`/documents/${d.id}`} className="row" style={{ textDecoration: "none" }}>
               <div>
                 <div className="rowMain">
                   {d.type === "uploaded" ? "Uploaded form" : getTemplate(d.type as Parameters<typeof getTemplate>[0]).shortName}
@@ -97,7 +98,7 @@ export default async function ClientDetailPage({
               <span className={`badge ${d.status === "completed" ? "badgeOk" : "badgeDraft"}`}>
                 {d.status === "completed" ? "Filed" : "Draft"}
               </span>
-            </div>
+            </Link>
           ))
         )}
       </section>

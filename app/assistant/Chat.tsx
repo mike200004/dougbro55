@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface UiMessage {
   role: "user" | "assistant";
@@ -16,6 +16,11 @@ export default function Chat() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const apiMessages = useRef<ApiMessage[]>([]);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [ui, busy]);
 
   async function send() {
     const text = input.trim();
@@ -34,13 +39,18 @@ export default function Chat() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || "Something went wrong.");
+        // Roll the failed turn back so retrying doesn't double the message.
+        apiMessages.current = apiMessages.current.slice(0, -1);
+        setInput(text);
+        setError(data.error || "Something went wrong — your message wasn't sent.");
       } else {
         apiMessages.current = data.messages;
         setUi((m) => [...m, { role: "assistant", text: data.reply || "(no response)" }]);
       }
     } catch {
-      setError("Network error — please try again.");
+      apiMessages.current = apiMessages.current.slice(0, -1);
+      setInput(text);
+      setError("Network error — your message wasn't sent. Try again.");
     } finally {
       setBusy(false);
     }
@@ -50,7 +60,7 @@ export default function Chat() {
     <div>
       <div
         className="card"
-        style={{ minHeight: 320, display: "flex", flexDirection: "column", gap: 14 }}
+        style={{ minHeight: 320, maxHeight: "60vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 14 }}
       >
         {ui.length === 0 && (
           <p className="muted">Start the conversation below.</p>
@@ -74,6 +84,7 @@ export default function Chat() {
           </div>
         ))}
         {busy && <div className="muted" style={{ alignSelf: "flex-start" }}>Thinking…</div>}
+        <div ref={bottomRef} />
       </div>
 
       {error && <p style={{ color: "var(--danger)", marginTop: 10 }}>{error}</p>}

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { inviteAssistantAction, removeAssistantAction } from "@/app/actions";
+import { inviteAssistantAction, removeAssistantAction, resendInviteAction } from "@/app/actions";
 
 interface Member {
   id: string;
@@ -23,6 +23,7 @@ export default function Team({
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [rowBusy, setRowBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -71,22 +72,58 @@ export default function Team({
               </div>
             </div>
             {isOwner && m.role === "assistant" && (
-              <button
-                className="btn"
-                onClick={async () => {
-                  if (!confirm(`Remove ${m.name || "this assistant"}?`)) return;
-                  await removeAssistantAction(m.id);
-                  router.refresh();
-                }}
-              >
-                Remove
-              </button>
+              <span className="btnRow" style={{ gap: 6 }}>
+                {m.status === "invited" && (
+                  <button
+                    className="btn"
+                    disabled={rowBusy === m.id}
+                    onClick={async () => {
+                      setRowBusy(m.id);
+                      setError(null);
+                      setNotice(null);
+                      try {
+                        const res = await resendInviteAction(m.id);
+                        if (res.ok) setNotice(`Invite re-sent to ${m.email}.`);
+                        else setError(res.error);
+                        router.refresh();
+                      } catch {
+                        setError("Couldn't resend the invite — please try again.");
+                      } finally {
+                        setRowBusy(null);
+                      }
+                    }}
+                  >
+                    {rowBusy === m.id ? "Sending…" : "Resend invite"}
+                  </button>
+                )}
+                <button
+                  className="btn"
+                  disabled={rowBusy === m.id}
+                  onClick={async () => {
+                    if (!confirm(`Remove ${m.name || "this assistant"}?`)) return;
+                    setRowBusy(m.id);
+                    setError(null);
+                    try {
+                      const res = await removeAssistantAction(m.id);
+                      if (!res.ok) setError(res.error);
+                      router.refresh();
+                    } catch {
+                      setError("Couldn't remove them — please try again.");
+                    } finally {
+                      setRowBusy(null);
+                    }
+                  }}
+                >
+                  {rowBusy === m.id ? "Working…" : "Remove"}
+                </button>
+              </span>
             )}
           </div>
         ))}
       </div>
 
       {notice && <p className="muted" style={{ marginBottom: 12 }}>{notice}</p>}
+      {error && !open && <p style={{ color: "var(--danger)", marginBottom: 12 }}>{error}</p>}
 
       {isOwner &&
         (open ? (

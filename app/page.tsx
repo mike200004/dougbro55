@@ -15,6 +15,7 @@ import { newDocumentAction, startFromTemplateAction } from "./actions";
 import AddClient from "./AddClient";
 import Onboarding from "./Onboarding";
 import TemplateActions from "./TemplateActions";
+import TileButton from "./TileButton";
 import Landing from "./Landing";
 
 export const dynamic = "force-dynamic";
@@ -26,10 +27,15 @@ function greeting(name: string | undefined) {
   return who ? `Welcome back, ${who}` : "Welcome to your portal";
 }
 
-export default async function Home() {
+export default async function Home({
+  searchParams,
+}: {
+  searchParams?: Promise<{ uploaded?: string }>;
+}) {
   const account = await getAccount();
   if (!account) return <Landing />;
   const { accountId } = account;
+  const uploaded = (await searchParams)?.uploaded;
   const [profile, clients, documents, names, forms, members, sigs, activity] =
     await Promise.all([
       getProfile(accountId),
@@ -82,11 +88,48 @@ export default async function Home() {
         ))}
       </section>
 
+      <section id="your-forms">
+        <h2 className="sectionTitle">Your forms</h2>
+        <p className="pageSub" style={{ marginTop: 0, marginBottom: 14, fontSize: 14 }}>
+          Upload any PDF — fillable forms import instantly; flat or scanned ones get AI
+          field detection you fine-tune once. Then fill it by web, voice, or text, forever.
+        </p>
+        {uploaded && (
+          <div className="notice" style={{ marginBottom: 14 }}>
+            “{uploaded}” is ready — start a copy any time, or just ask for it by name on a call.
+          </div>
+        )}
+        <div className="grid" style={{ marginBottom: forms.length ? 16 : 0 }}>
+          <Link
+            href="/forms/new"
+            className="card"
+            style={{ textDecoration: "none", color: "var(--text)", borderStyle: "dashed" }}
+          >
+            <div className="cardKicker">Upload</div>
+            <div className="cardTitle" style={{ fontSize: 19 }}>+ Upload your own form</div>
+            <div className="cardBody">
+              SmartMLS forms, brokerage paperwork, disclosures — bring the documents you
+              actually use.
+            </div>
+          </Link>
+          {forms.map((f) => (
+            <div key={f.id} className="card">
+              <form action={startFromTemplateAction.bind(null, f.id)}>
+                <TileButton kicker="Uploaded form" title={f.name} body={`${f.fields.length} fields · start a copy`} unstyled />
+              </form>
+              <div style={{ marginTop: 10 }}>
+                <TemplateActions templateId={f.id} name={f.name} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
       <section>
         <h2 className="sectionTitle">New document</h2>
         <p className="pageSub" style={{ marginTop: 0, marginBottom: 14, fontSize: 14 }}>
-          A full library for the deal and the office — or say the word to your assistant
-          and it starts one for you.
+          Or start from the built-in library — for the deal and the office. Say the word to
+          your assistant and it starts one for you.
         </p>
         {templateCategories.map((cat) => {
           const docs = templateList.filter((t) => t.category === cat);
@@ -97,59 +140,13 @@ export default async function Home() {
               <div className="grid">
                 {docs.map((tpl) => (
                   <form key={tpl.id} action={newDocumentAction.bind(null, tpl.id)}>
-                    <button
-                      type="submit"
-                      className="card"
-                      style={{
-                        width: "100%",
-                        height: "100%",
-                        textAlign: "left",
-                        cursor: "pointer",
-                        color: "var(--text)",
-                        font: "inherit",
-                      }}
-                    >
-                      <div className="cardKicker">{tpl.shortName}</div>
-                      <div className="cardTitle" style={{ fontSize: 19 }}>{tpl.name}</div>
-                      <div className="cardBody">{tpl.description}</div>
-                    </button>
+                    <TileButton kicker={tpl.shortName} title={tpl.name} body={tpl.description} />
                   </form>
                 ))}
               </div>
             </div>
           );
         })}
-      </section>
-
-      <section>
-        <h2 className="sectionTitle">Your forms</h2>
-        <p className="pageSub" style={{ marginTop: 0, marginBottom: 14, fontSize: 14 }}>
-          Upload a fillable PDF — a SmartMLS form, a brokerage document, a disclosure — and
-          Pheme detects its fields so you can fill it by web, voice, or text. Uploaded forms
-          are saved here to reuse.
-        </p>
-        {forms.length > 0 && (
-          <div className="grid" style={{ marginBottom: 16 }}>
-            {forms.map((f) => (
-              <div key={f.id} className="card">
-                <form action={startFromTemplateAction.bind(null, f.id)}>
-                  <button
-                    type="submit"
-                    style={{ all: "unset", cursor: "pointer", display: "block", width: "100%" }}
-                  >
-                    <div className="cardKicker">Uploaded form</div>
-                    <div className="cardTitle">{f.name}</div>
-                    <div className="cardBody">{f.fields.length} fields · start a copy</div>
-                  </button>
-                </form>
-                <div style={{ marginTop: 10 }}>
-                  <TemplateActions templateId={f.id} name={f.name} />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-        <Link href="/forms/new" className="btn">+ Upload a form</Link>
       </section>
 
       <section>

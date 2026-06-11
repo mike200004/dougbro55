@@ -7,6 +7,11 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/api/documents/[id]/pdf": ["./templates/**/*"],
   },
+  // Uploaded form PDFs travel through server actions (base64-inflated ~33%);
+  // the 1MB default rejected any normal scanned form.
+  experimental: {
+    serverActions: { bodySizeLimit: "25mb" },
+  },
 };
 
 export default nextConfig;

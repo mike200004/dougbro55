@@ -350,6 +350,7 @@ export async function rememberParties(accountId: string, doc: DocumentRecord): P
 }
 
 export interface Deal {
+  id: string;
   type: DocumentType;
   property: string;
   status: string;
@@ -382,6 +383,7 @@ export async function getClientDossier(accountId: string, name: string): Promise
       nameMatches(docSeller(d.fields), client.full_name),
   );
   const deals: Deal[] = theirs.map((d) => ({
+    id: d.id,
     type: d.type,
     property: docProperty(d.fields),
     status: d.status,

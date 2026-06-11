@@ -9,20 +9,36 @@ export default function ResetPasswordPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // The recovery link establishes a session; give the client a moment to pick
-  // up the token from the URL.
+  // The recovery link establishes a session asynchronously — listen for the
+  // auth event instead of racing a timer, with a generous fallback before we
+  // declare the link dead.
   useEffect(() => {
     const supabase = createSupabaseBrowser();
-    supabase.auth.getUser().then(({ data }) => {
-      if (data.user) setReady(true);
-      else {
-        setTimeout(async () => {
-          const { data: d2 } = await supabase.auth.getUser();
-          if (d2.user) setReady(true);
-          else setError("This reset link is invalid or has expired. Request a new one from the sign-in page.");
-        }, 1200);
+    let settled = false;
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session && (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN" || event === "INITIAL_SESSION")) {
+        settled = true;
+        setReady(true);
+        setError(null);
       }
     });
+    supabase.auth.getUser().then(({ data }) => {
+      if (data.user) {
+        settled = true;
+        setReady(true);
+      }
+    });
+    const timer = setTimeout(() => {
+      if (!settled) {
+        setError(
+          "This reset link is invalid or has expired — they're single-use and must be opened in the same browser. Request a new one from the sign-in page.",
+        );
+      }
+    }, 6000);
+    return () => {
+      sub.subscription.unsubscribe();
+      clearTimeout(timer);
+    };
   }, []);
 
   async function submit(e: React.FormEvent) {
