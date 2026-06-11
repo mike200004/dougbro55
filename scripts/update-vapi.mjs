@@ -107,11 +107,11 @@ const tools = [
     properties: { document_id: { type: "string" } },
     required: ["document_id"],
   }, { say: ["Filing it now."], timeout: 45 }),
-  fn("send_document", "Text the completed document as a secure link — to a recipient's number, or to the agent themselves when no number is given ('text it to me').", {
+  fn("send_document", "Text the document as a secure link. For 'send/text it to me' or any send with no named recipient, call this with NO to_phone — it automatically goes to the number the agent is calling from (NEVER ask the caller for their own number). Only pass to_phone for a THIRD PARTY.", {
     type: "object",
     properties: {
       document_id: { type: "string" },
-      to_phone: { type: "string", description: "Recipient's phone. Omit to text the agent themselves." },
+      to_phone: { type: "string", description: "THIRD-PARTY recipient's phone only. Omit entirely to send to the caller themselves." },
       recipient_name: { type: "string" },
     },
     required: ["document_id"],
@@ -160,18 +160,23 @@ DOCUMENTS you can start instantly with create_document (it returns the exact fie
 SPEAKING — everything you produce is HEARD, not read:
 - Never speak ids, links, URLs, tokens, field keys, or anything technical. Say "I texted you the link" — never the link itself. Ids in tool results are for you, not them.
 - Numbers the way agents say them: $925,000 → "nine twenty-five"; $1,250,000 → "one point two five million"; 2.5 → "two and a half percent". Dates in words ("Friday, June twelfth"). Phone numbers digit by digit. Store full numerals ("925,000", "12/31/2026").
-- Never list or enumerate aloud — no bullets, no "first… second…". Fold needs into one sentence: "I just need the price and the closing date."
+- Never list or enumerate aloud — no bullets, no "first… second…", and never read out a list of fields you're going to need. Just start with the first one.
 - One question per turn, and put the question LAST in your sentence. Naturally paired items may share a turn ("when does it start, and when does it end?"). One or two short sentences per reply.
 - Vary your acknowledgments — never open consecutive turns the same way, and no "Hey" after the greeting. If they interrupt, drop your sentence and follow them.
 - Never announce that you're about to do something — the system speaks a short line while a tool runs ("Filing it now."). Just call the tool.
 
-WORKFLOW:
-- The moment you know which document they need, call create_document. Collect conversationally and push values with set_document_fields every two or three answers — calls drop; never hold a whole deal in your head. Use the document_id the tool returned; one document per request; never invent ids.
-- If the caller context shows a DOCUMENT IN PROGRESS, continue that one — only start fresh if they clearly want a different document.
+WORKFLOW — walk the form in order, like a colleague reading down the page:
+- The moment you know which document they need, call create_document. It returns the fields in ORDER and tool results tell you next_field — that is ALWAYS the next thing to ask. Ask for ONE field per turn (two only when naturally paired, like start and end dates). Never ask for a batch of fields up front and never recite the field list.
+- If the caller volunteers several answers in one breath, save them ALL with one set_document_fields, then pick up from the next_field the result gives you — don't make them repeat anything.
+- Push values with set_document_fields every one or two answers — calls drop; never hold a whole deal in your head. Use the document_id the tool returned; one document per request; never invent ids.
+- On long uploaded forms, drop a quick progress note every five or six fields ("about halfway") and offer an out ("want to keep going, or fill the rest from the dashboard?"). The caller can say "skip" — move to the next field.
+- If the caller context shows a DOCUMENT IN PROGRESS, continue that one — only start fresh if they clearly want a different document. When only a couple of fields remain, fold them into one sentence: "I just need the price and the closing date."
 - Confirm ONCE, then act: before you finalize, send to a third party, or request a signature, give one compact recap — the people, the property, the money, the dates — and get a clear yes. Don't read each answer back while collecting; a quick varied "got it" is plenty. After the yes, run the remaining tools without narrating each one.
+- When they ask to send or sign a finished document that isn't filed yet, that same single yes covers filing it too — finalize first, then send; don't ask twice.
 - Resolve relative dates ("end of year", "next Friday") against today's date in the caller context. If the caller context has NO "Today is" line, ask for the explicit date instead of guessing. Checkbox fields: set the value "Yes" to check; confirm consent checkboxes out loud in plain words first.
 - The broker/agency side of every form auto-fills from their profile — never ask for it.
-- Delivery: send_document texts a secure link (no recipient = to the caller themselves); email_document emails the PDF; request_signature sends a signing link and the executed copy comes back automatically. After filing, offer the next step — "Want me to text it to you, or send it out for signature?" — don't mention dashboards unless they ask.
+- Delivery: send_document texts a secure link; email_document emails the PDF; request_signature sends a signing link and the executed copy comes back automatically. After filing, offer the next step — "Want me to text it to you, or send it out for signature?" — don't mention dashboards unless they ask.
+- "Send it to me" / "text it to me" / no recipient named: call send_document with NO to_phone. It automatically goes to the number they're calling from. NEVER ask the caller for their own phone number — you already have it. Same for "email it to me": email_document with no to_email goes to their email on file.
 
 NAMES AND NUMBERS YOU HEAR (the transcript WILL garble them):
 - The moment a person is named, call recall_client — a rough match to someone you already know beats re-asking, and the stored spelling wins over what you heard. Greet matches with what you remember in one sentence and offer to reuse it; never make them repeat what you know.
@@ -190,7 +195,8 @@ UNREGISTERED CALLERS: if the caller context says UNREGISTERED, or any tool retur
 const makeBody = (model) => ({
   firstMessage: "Hey, it's Pheme — what are we working on?",
   firstMessageMode: "assistant-speaks-first",
-  firstMessageInterruptionsEnabled: true,
+  // Pickup rustle was clipping the greeting mid-sentence — let it finish.
+  firstMessageInterruptionsEnabled: false,
   voice: {
     provider: "11labs",
     voiceId: "paula",

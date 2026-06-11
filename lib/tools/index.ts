@@ -21,7 +21,7 @@ import { getTemplate, isDocType, missingRequired, templateList, userFields } fro
 import type { DocumentRecord } from "@/lib/types";
 import { makeShareToken } from "@/lib/share";
 import { sendSms } from "@/lib/twilio";
-import { sendEmail } from "@/lib/email";
+import { sendEmail, emailConfigured } from "@/lib/email";
 import { renderDocument } from "@/lib/pdf/fill";
 import { normalizePhone } from "@/lib/phone";
 import type { DocType } from "@/lib/types";
@@ -279,6 +279,38 @@ async function docSchema(acc: string, doc: DocumentRecord): Promise<DocSchema> {
   };
 }
 
+/**
+ * Voice walkthrough cursor: tells the model exactly what to ask next so a
+ * phone call moves through a form top-to-bottom instead of jumping around.
+ * Built-ins walk the missing REQUIRED fields in schema order; uploaded forms
+ * (no required metadata) walk every unfilled field in template order, with a
+ * progress note so long forms feel like progress, not an interrogation.
+ */
+function walkCursor(
+  schema: DocSchema,
+  values: Record<string, string>,
+): { next_field: string | null; progress?: string; note?: string } {
+  const requiredMissing = schema.missing(values);
+  if (requiredMissing.length) {
+    return { next_field: requiredMissing[0] };
+  }
+  if (schema.uploaded) {
+    const unfilled = schema.fields.filter((f) => !String(values[f.key] ?? "").trim());
+    const done = schema.fields.length - unfilled.length;
+    if (unfilled.length) {
+      return {
+        next_field: unfilled[0].label,
+        progress: `${done} of ${schema.fields.length} fields filled`,
+      };
+    }
+    return { next_field: null, note: "Every field is filled — recap the key details, get a yes, then finalize." };
+  }
+  return {
+    next_field: null,
+    note: "All required fields are filled — recap the key details, get a yes, then finalize. Optional fields only if the caller brings them up.",
+  };
+}
+
 export interface ToolContext {
   accountId: string;
   actorId?: string; // who is acting (owner or assistant member id)
@@ -385,12 +417,15 @@ export async function runTool(
           options: f.options,
         }));
         if (voice) {
+          const labels = fields.map((f) => f.label);
           return {
             document_id: doc.id,
             template: tpl.name,
             title: doc.title,
-            field_labels: fields.slice(0, 40).map((f) => f.label),
-            note: "Set values with set_document_fields using these labels as keys.",
+            total_fields: labels.length,
+            ask_in_order: labels.slice(0, 40),
+            start_with: labels[0] ?? null,
+            note: "Walk the form top to bottom in this exact order, one field at a time. Set values with set_document_fields using these labels as keys; its result tells you the next field to ask.",
           };
         }
         return { document_id: doc.id, template: tpl.name, title: doc.title, fields, missing_required: [] };
@@ -414,13 +449,15 @@ export async function runTool(
         // Labels only — the fuzzy key resolver accepts labels as keys, and the
         // voice model never needs machine keys/types/hints.
         const fields = userFields(type);
+        const required = fields.filter((f) => f.required).map((f) => f.label);
         return {
           document_id: doc.id,
           type,
           title: doc.title,
-          required: fields.filter((f) => f.required).map((f) => f.label),
+          ask_in_order: required,
           optional: fields.filter((f) => !f.required).map((f) => f.label),
-          note: "Set values with set_document_fields using these labels as keys.",
+          start_with: required[0] ?? null,
+          note: "Collect the fields in this exact order, one at a time. Set values with set_document_fields using these labels as keys; its result tells you the next field to ask.",
         };
       }
       return {
@@ -464,6 +501,7 @@ export async function runTool(
           ? { rejected_unknown_keys: rejected, warning: "Those keys did NOT save — re-ask and set them with the field labels." }
           : {}),
         missing_required: schema.missing(updated.fields),
+        ...(voice ? walkCursor(schema, updated.fields) : {}),
       };
     }
 
@@ -484,6 +522,7 @@ export async function runTool(
           status: doc.status,
           filled,
           missing_required: schema.missing(doc.fields),
+          ...walkCursor(schema, doc.fields),
         };
       }
       return {
@@ -537,15 +576,19 @@ export async function runTool(
       if (missing.length) {
         return { ok: false, missing_required: missing, message: "Fill the required fields before sending." };
       }
-      // "Send it to me" / no recipient → send to the agent's own number.
-      const to = normalizePhone(String(input.to_phone || "")) || ctx.actorPhone || "";
+      // "Send it to me" / no recipient → the caller's own number, falling back
+      // to the phone on their profile. Never make the caller dictate the
+      // number they're calling from.
+      const explicitTo = normalizePhone(String(input.to_phone || ""));
+      const profile = explicitTo ? null : await getProfile(acc);
+      const to = explicitTo || ctx.actorPhone || normalizePhone(profile?.phone || "") || "";
       if (!to) {
         return {
           ok: false,
-          message: "Who should I send it to? Give me a phone number, or say 'send it to me'.",
+          message: "I don't have a mobile number on file for you — what's the best number to text it to?",
         };
       }
-      const toSelf = !!ctx.actorPhone && to === ctx.actorPhone;
+      const toSelf = !explicitTo;
 
       const docName = doc.template_id ? doc.title || "document" : getTemplate(doc.type as DocType).name;
       const link = `${SITE_URL}/api/share/${makeShareToken(docId)}`;
@@ -556,12 +599,33 @@ export async function runTool(
       if (!sent.ok) {
         return { ok: false, message: `Could not send the text: ${sent.error}` };
       }
+
+      // Carriers can silently drop texts from a number that hasn't finished
+      // A2P registration — for self-sends, also email the link so the agent
+      // always has a copy that arrives.
+      let emailedToo = false;
+      const selfEmail = toSelf ? (profile ?? (await getProfile(acc)))?.email || "" : "";
+      if (toSelf && selfEmail && emailConfigured()) {
+        emailedToo = true;
+        defer(() =>
+          sendEmail({
+            to: selfEmail,
+            subject: docName,
+            html: `<p>Here’s your ${docName}: <a href="${link}">view &amp; download the PDF</a>.</p><p>— Pheme</p>`,
+          }),
+        );
+      }
+
       await logActivity(acc, "document_sent", `Texted “${doc.title || "a document"}” to ${toSelf ? "the agent" : to}.`, { actorId: ctx.actorId });
       return {
         ok: true,
         to,
         link,
-        message: toSelf ? "Texted it to your phone." : `Sent the link by text to ${to}.`,
+        message: toSelf
+          ? emailedToo
+            ? "Texted it to your phone and emailed you a copy."
+            : "Texted it to your phone."
+          : `Sent the link by text to ${to}.`,
       };
     }
 

@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAccountByPhone, buildMemoryDigest, latestDraft, getProfile } from "@/lib/db";
+import { getAccountByPhone, buildMemoryDigest, latestDraft, getProfile, listDocuments } from "@/lib/db";
 import { missingRequired, userFields, getTemplate, isDocType } from "@/lib/templates";
 import type { DocType } from "@/lib/types";
 import { normalizePhone } from "@/lib/phone";
 import { sendSms } from "@/lib/twilio";
+import { sendEmail, emailConfigured } from "@/lib/email";
+import { makeShareToken } from "@/lib/share";
 import { logActivity } from "@/lib/activity";
 import { defer } from "@/lib/defer";
 
@@ -55,8 +57,33 @@ export async function POST(req: NextRequest) {
         const actor = await getAccountByPhone(callerPhone);
         if (!actor) return;
         const recap = summary.length > 300 ? `${summary.slice(0, 297)}…` : summary;
-        await sendSms(callerPhone, `Pheme recap: ${recap}`);
-        await logActivity(actor.accountId, "call_recap", "Phone call completed — recap texted to the agent.", {
+
+        // The quick save: link the document this call touched, so one tap
+        // after hanging up opens the PDF.
+        const SITE = process.env.NEXT_PUBLIC_SITE_URL || "https://pheme.deals";
+        const docs = await listDocuments(actor.accountId).catch(() => []);
+        const recent =
+          docs[0] && Date.now() - new Date(docs[0].updated_at).getTime() < 45 * 60_000 ? docs[0] : null;
+        const link = recent ? `${SITE}/api/share/${makeShareToken(recent.id)}` : "";
+
+        await sendSms(callerPhone, `Pheme recap: ${recap}${link ? `\nYour document: ${link}` : ""}`);
+
+        // Texts from a number still pending A2P registration can be silently
+        // dropped by carriers — email the recap too so it always lands.
+        const profile = await getProfile(actor.accountId).catch(() => null);
+        if (profile?.email && emailConfigured()) {
+          await sendEmail({
+            to: profile.email,
+            subject: "Your Pheme call recap",
+            html: `<p>${recap}</p>${
+              recent && link
+                ? `<p>Document from this call: <a href="${link}">${recent.title || "view & download"}</a></p>`
+                : ""
+            }<p>— Pheme</p>`,
+          });
+        }
+
+        await logActivity(actor.accountId, "call_recap", "Phone call completed — recap sent to the agent.", {
           actorId: actor.memberId,
           meta: { summary },
         });
