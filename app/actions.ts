@@ -3,6 +3,8 @@
 import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
+import { rateLimit } from "@/lib/ratelimit";
 import {
   createClient_,
   createDocument,
@@ -39,7 +41,9 @@ const SEND_SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://pheme.deals";
 const SITE_URL =
   process.env.NEXT_PUBLIC_SITE_URL || "https://pheme.deals";
 
-type ActionResult = { ok: true } | { ok: false; error: string };
+type ActionResult =
+  | { ok: true; message?: string; sign_url?: string; delivered?: boolean }
+  | { ok: false; error: string };
 
 // ---------------------------------------------------------------------------
 // Account creation (owner) — admin-confirmed; creates profile + owner member.
@@ -55,6 +59,11 @@ export async function createAccountAction(input: {
   street?: string;
   city_state_zip?: string;
 }): Promise<ActionResult> {
+  // Signup is an unauthenticated admin-powered action — dampen abuse per IP.
+  const ip = ((await headers()).get("x-forwarded-for") || "unknown").split(",")[0].trim();
+  if (!rateLimit(`signup:${ip}`, 5, 60 * 60_000)) {
+    return { ok: false, error: "Too many signups from this connection — try again later." };
+  }
   const email = input.email.trim().toLowerCase();
   const phone = normalizePhone(input.phone);
   if (!email || !input.password) return { ok: false, error: "Email and password are required." };
@@ -159,12 +168,66 @@ export async function inviteAssistantAction(input: {
   return { ok: true };
 }
 
-export async function removeAssistantAction(memberId: string): Promise<void> {
+export async function removeAssistantAction(memberId: string): Promise<ActionResult> {
   const account = await requireAccount();
-  if (account.role !== "owner" || memberId === account.accountId) return;
+  if (account.role !== "owner" || memberId === account.accountId) {
+    return { ok: false, error: "Only the account owner can remove assistants." };
+  }
+  // Never delete an auth user we don't own: verify the member belongs to THIS
+  // account and is an assistant before touching auth.
+  const { data: member } = await admin()
+    .from("account_members")
+    .select("id, role")
+    .eq("account_id", account.accountId)
+    .eq("id", memberId)
+    .maybeSingle();
+  if (!member || member.role !== "assistant") {
+    return { ok: false, error: "That person isn't an assistant on your account." };
+  }
   await removeMember(account.accountId, memberId);
   await admin().auth.admin.deleteUser(memberId);
   revalidatePath("/settings");
+  return { ok: true };
+}
+
+/** Re-send an expired/lost invite to a still-pending assistant. */
+export async function resendInviteAction(memberId: string): Promise<ActionResult> {
+  const account = await requireAccount();
+  if (account.role !== "owner") return { ok: false, error: "Only the account owner can resend invites." };
+  const { data: member } = await admin()
+    .from("account_members")
+    .select("id, role, status, email, name, phone")
+    .eq("account_id", account.accountId)
+    .eq("id", memberId)
+    .maybeSingle();
+  if (!member || member.role !== "assistant" || member.status !== "invited" || !member.email) {
+    return { ok: false, error: "That invite can't be resent." };
+  }
+  // Invite links can only be issued for a fresh auth user — recreate it.
+  const sb = admin();
+  await sb.auth.admin.deleteUser(member.id);
+  const { data: invited, error: inviteErr } = await sb.auth.admin.inviteUserByEmail(member.email, {
+    redirectTo: `${SITE_URL}/accept-invite`,
+  });
+  if (inviteErr || !invited.user) {
+    // The old member row now points at a deleted auth user — remove it so the
+    // owner can re-invite cleanly.
+    await removeMember(account.accountId, member.id);
+    revalidatePath("/settings");
+    return { ok: false, error: inviteErr?.message || "Could not resend — please invite them again." };
+  }
+  await removeMember(account.accountId, member.id);
+  await insertMember({
+    id: invited.user.id,
+    account_id: account.accountId,
+    role: "assistant",
+    name: member.name ?? "",
+    phone: member.phone,
+    email: member.email,
+    status: "invited",
+  });
+  revalidatePath("/settings");
+  return { ok: true };
 }
 
 /** Called after an invited assistant sets their password (now signed in). */
@@ -180,6 +243,22 @@ export async function acceptInviteAction(): Promise<void> {
 export async function saveProfileAction(formData: FormData) {
   const { accountId, role } = await requireAccount();
   if (role !== "owner") return; // only the owner edits the brokerage profile
+  const rawPhone = String(formData.get("phone") || "").trim();
+  const phone = normalizePhone(rawPhone);
+  if (rawPhone && !phone) redirect("/settings?saved=badphone");
+
+  // The member row is what voice/SMS caller-id matches against — keep it in
+  // sync with the profile, and never let two accounts claim the same number.
+  if (phone) {
+    const { data: taken } = await admin()
+      .from("account_members")
+      .select("id")
+      .eq("phone", phone)
+      .neq("id", accountId)
+      .maybeSingle();
+    if (taken) redirect("/settings?saved=phonetaken");
+  }
+
   const profile: AgentProfile = {
     broker_agency_name: String(formData.get("broker_agency_name") || ""),
     agent_name: String(formData.get("agent_name") || ""),
@@ -187,23 +266,32 @@ export async function saveProfileAction(formData: FormData) {
     street: String(formData.get("street") || ""),
     city_state_zip: String(formData.get("city_state_zip") || ""),
     email: String(formData.get("email") || ""),
-    phone: normalizePhone(String(formData.get("phone") || "")),
+    phone,
   };
   await saveProfile(accountId, profile);
+  await admin()
+    .from("account_members")
+    .update({ ...(phone ? { phone } : {}), name: profile.agent_name, email: profile.email })
+    .eq("id", accountId);
   revalidatePath("/settings");
   revalidatePath("/");
+  redirect("/settings?saved=profile");
 }
 
 export async function createClientAction(formData: FormData) {
   const { accountId } = await requireAccount();
+  const fullName = String(formData.get("full_name") || "").trim();
+  if (!fullName) return;
+  const rawPhone = String(formData.get("phone") || "").trim();
   await createClient_(accountId, {
-    full_name: String(formData.get("full_name") || ""),
+    full_name: fullName,
     secondary_name: (formData.get("secondary_name") as string) || null,
     email: (formData.get("email") as string) || null,
-    phone: (formData.get("phone") as string) || null,
+    phone: rawPhone ? normalizePhone(rawPhone) || rawPhone : null,
     role: (formData.get("role") as "buyer" | "seller" | "both") || null,
     notes: (formData.get("notes") as string) || null,
   });
+  revalidatePath("/clients");
   revalidatePath("/");
 }
 
@@ -338,15 +426,18 @@ export async function sendDocumentAction(
   return { ok: true };
 }
 
-export async function setDocumentStatusAction(docId: string, complete: boolean) {
+export async function setDocumentStatusAction(docId: string, complete: boolean): Promise<ActionResult> {
   const { accountId, userId } = await requireAccount();
   const doc = await getDocument(accountId, docId);
-  if (!doc) return;
-  if (complete && !doc.template_id && missingRequired(doc.type as DocType, doc.fields).length > 0) return;
+  if (!doc) return { ok: false, error: "Document not found." };
+  if (complete && !doc.template_id && missingRequired(doc.type as DocType, doc.fields).length > 0) {
+    return { ok: false, error: "Save the document first — required fields are still empty on the saved copy." };
+  }
   await updateDocument(accountId, docId, { status: complete ? "completed" : "draft" });
   if (complete) await logActivity(accountId, "document_filed", `Filed “${doc.title || "a document"}”.`, { actorId: userId });
   revalidatePath(`/documents/${docId}`);
   revalidatePath("/");
+  return { ok: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -370,10 +461,11 @@ export async function deleteDocumentAction(docId: string) {
   revalidatePath("/");
 }
 
-export async function duplicateDocumentAction(docId: string) {
+export async function duplicateDocumentAction(docId: string): Promise<ActionResult> {
   const { accountId, userId } = await requireAccount();
   const copy = await duplicateDocument(accountId, docId, userId);
-  if (copy) redirect(`/documents/${copy.id}`);
+  if (!copy) return { ok: false, error: "Couldn't duplicate that document." };
+  redirect(`/documents/${copy.id}`);
 }
 
 export async function requestSignatureAction(input: {
@@ -392,7 +484,22 @@ export async function requestSignatureAction(input: {
   });
   revalidatePath(`/documents/${input.docId}`);
   revalidatePath("/documents");
-  return res.ok ? { ok: true } : { ok: false, error: res.message };
+  if (!res.ok) return { ok: false, error: res.message };
+  // Pass the real outcome through — "created but not delivered" must not look
+  // like success, and the fallback link must reach the user.
+  return { ok: true, message: res.message, sign_url: res.delivered ? undefined : res.sign_url, delivered: res.delivered };
+}
+
+export async function cancelSignatureRequestAction(requestId: string, docId: string): Promise<ActionResult> {
+  const { accountId } = await requireAccount();
+  await admin()
+    .from("signature_requests")
+    .update({ status: "canceled" })
+    .eq("account_id", accountId)
+    .eq("id", requestId)
+    .eq("status", "pending");
+  revalidatePath(`/documents/${docId}`);
+  return { ok: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -401,11 +508,12 @@ export async function requestSignatureAction(input: {
 
 export async function updateClientAction(clientId: string, formData: FormData): Promise<void> {
   const { accountId } = await requireAccount();
+  const rawPhone = String(formData.get("phone") || "").trim();
   await updateClient(accountId, clientId, {
     full_name: String(formData.get("full_name") || ""),
     secondary_name: (formData.get("secondary_name") as string) || null,
     email: (formData.get("email") as string) || null,
-    phone: (formData.get("phone") as string) || null,
+    phone: rawPhone ? normalizePhone(rawPhone) || rawPhone : null,
     role: ((formData.get("role") as string) || null) as "buyer" | "seller" | "both" | null,
     preferences: (formData.get("preferences") as string) || null,
     notes: (formData.get("notes") as string) || null,
@@ -432,12 +540,26 @@ export async function renameTemplateAction(templateId: string, name: string) {
   revalidatePath("/");
 }
 
-export async function deleteTemplateAction(templateId: string) {
+export async function deleteTemplateAction(templateId: string): Promise<ActionResult> {
   const { accountId, userId } = await requireAccount();
   const tpl = await getFormTemplate(accountId, templateId);
+  // Filled copies render from the template's stored PDF — deleting it would
+  // break every document made from this form.
+  const { count } = await admin()
+    .from("documents")
+    .select("id", { count: "exact", head: true })
+    .eq("account_id", accountId)
+    .eq("template_id", templateId);
+  if (count && count > 0) {
+    return {
+      ok: false,
+      error: `${count} document${count === 1 ? "" : "s"} were filled from this form — delete those first, or keep the form.`,
+    };
+  }
   await deleteFormTemplate(accountId, templateId);
   if (tpl) await logActivity(accountId, "template_deleted", `Removed the form “${tpl.name}”.`, { actorId: userId });
   revalidatePath("/");
+  return { ok: true };
 }
 
 
@@ -450,6 +572,18 @@ export async function deleteAccountAction(confirmText: string): Promise<ActionRe
   if (account.role !== "owner") return { ok: false, error: "Only the account owner can delete the account." };
   if (confirmText !== "DELETE") return { ok: false, error: "Type DELETE to confirm." };
   const sb = admin();
+  // Remove the account's uploaded + signed PDFs from storage (DB cascade
+  // doesn't reach the storage bucket).
+  try {
+    const prefixes = [account.accountId, `${account.accountId}/signed`];
+    for (const prefix of prefixes) {
+      const { data: objs } = await sb.storage.from("form-templates").list(prefix, { limit: 1000 });
+      const files = (objs ?? []).filter((o) => o.id).map((o) => `${prefix}/${o.name}`);
+      if (files.length) await sb.storage.from("form-templates").remove(files);
+    }
+  } catch {
+    // storage cleanup is best-effort — never block account deletion
+  }
   // Remove assistants' logins first, then the owner (cascades all account data).
   const { data: members } = await sb.from("account_members").select("id").eq("account_id", account.accountId);
   for (const m of members ?? []) {

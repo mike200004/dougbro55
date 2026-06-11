@@ -13,6 +13,8 @@ export interface RequestSignatureResult {
   ok: boolean;
   message: string;
   sign_url?: string;
+  /** True when the link actually went out by email or text. */
+  delivered?: boolean;
 }
 
 /**
@@ -85,6 +87,7 @@ export async function requestSignature(
   if (!delivered.length) {
     return {
       ok: true,
+      delivered: false,
       sign_url: url,
       message: `Signature request created, but I couldn't deliver it automatically — share this link with ${who || "the signer"}: ${url}`,
     };
@@ -93,5 +96,5 @@ export async function requestSignature(
   await logActivity(accountId, "signature_requested", `Signature requested from ${who || email || phone} for “${docName}”.`, {
     actorId: input.actorId ?? null,
   });
-  return { ok: true, sign_url: url, message: `Sent for signature — ${delivered.join(" and ")}.` };
+  return { ok: true, delivered: true, sign_url: url, message: `Sent for signature — ${delivered.join(" and ")}.` };
 }

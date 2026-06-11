@@ -1,12 +1,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getDocument, getFormTemplate, getProfile } from "@/lib/db";
+import { getDocument, getFormTemplate, getProfile, listSignatureRequests } from "@/lib/db";
 import { getTemplate, userFields } from "@/lib/templates";
+import { makeSignToken } from "@/lib/share";
 import { requireAccount } from "@/lib/auth";
 import type { DocType } from "@/lib/types";
 import DocumentEditor from "./DocumentEditor";
 
 export const dynamic = "force-dynamic";
+
+const SITE = process.env.NEXT_PUBLIC_SITE_URL || "https://pheme.deals";
 
 export default async function DocumentPage({
   params,
@@ -15,11 +18,24 @@ export default async function DocumentPage({
 }) {
   const { id } = await params;
   const { accountId } = await requireAccount();
-  const [doc, profile] = await Promise.all([
+  const [doc, profile, sigRequests] = await Promise.all([
     getDocument(accountId, id),
     getProfile(accountId),
+    listSignatureRequests(accountId, id).catch(() => []),
   ]);
   if (!doc) notFound();
+
+  const signedReq = sigRequests.find((r) => r.status === "signed");
+  const signatures = sigRequests
+    .filter((r) => r.status === "pending" || r.status === "signed")
+    .map((r) => ({
+      id: r.id,
+      signer: r.signer_name,
+      contact: r.signer_email || r.signer_phone || "",
+      status: r.status,
+      created_at: r.created_at,
+      signUrl: r.status === "pending" ? `${SITE}/sign/${makeSignToken(r.id)}` : null,
+    }));
 
   let heading: string;
   let sub: string;
@@ -31,6 +47,8 @@ export default async function DocumentPage({
     required: boolean;
     hint: string | null;
     options?: string[] | null;
+    section?: string | null;
+    pairedWith?: string[] | null;
   }[];
 
   if (doc.template_id) {
@@ -45,6 +63,7 @@ export default async function DocumentPage({
       required: false,
       hint: null,
       options: f.options ?? null,
+      section: f.placement ? `Page ${f.placement.page + 1}` : null,
     }));
   } else {
     const tpl = getTemplate(doc.type as DocType);
@@ -56,6 +75,8 @@ export default async function DocumentPage({
       type: f.type,
       required: Boolean(f.required),
       hint: f.hint ?? null,
+      section: f.section ?? null,
+      pairedWith: f.pairedWith ?? null,
     }));
   }
 
@@ -66,6 +87,18 @@ export default async function DocumentPage({
         <h1 className="pageTitle" style={{ marginTop: 10 }}>{heading}</h1>
         <p className="pageSub">{sub}</p>
       </div>
+
+      {signedReq && (
+        <div className="notice">
+          Signed by <strong>{signedReq.signer_name}</strong> on{" "}
+          {new Date(signedReq.signed_at || signedReq.created_at).toLocaleDateString()} — this
+          document is locked as the executed copy.{" "}
+          <a href={`/api/documents/${doc.id}/pdf`} target="_blank" rel="noopener noreferrer">
+            Download the signed PDF
+          </a>
+          . Need changes? Duplicate it from <Link href="/documents">Documents</Link>.
+        </div>
+      )}
 
       {!isUploaded && !profile && (
         <div className="notice">
@@ -81,6 +114,8 @@ export default async function DocumentPage({
         status={doc.status}
         fields={fields}
         values={doc.fields}
+        locked={Boolean(signedReq)}
+        signatures={signatures}
       />
     </div>
   );

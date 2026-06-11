@@ -6,6 +6,12 @@ import { deleteAccountAction } from "@/app/actions";
 
 export default function Security({ email, isOwner }: { email: string; isOwner: boolean }) {
   const [sent, setSent] = useState(false);
+  const [pwBusy, setPwBusy] = useState(false);
+  const [pwErr, setPwErr] = useState<string | null>(null);
+  const [newEmail, setNewEmail] = useState("");
+  const [emailMsg, setEmailMsg] = useState<string | null>(null);
+  const [emailErr, setEmailErr] = useState<string | null>(null);
+  const [emailBusy, setEmailBusy] = useState(false);
   const [confirmText, setConfirmText] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -20,18 +26,57 @@ export default function Security({ email, isOwner }: { email: string; isOwner: b
           </div>
           <button
             className="btn"
-            disabled={sent}
+            disabled={sent || pwBusy}
             onClick={async () => {
+              setPwBusy(true);
+              setPwErr(null);
               const supabase = createSupabaseBrowser();
-              await supabase.auth.resetPasswordForEmail(email, {
+              const { error } = await supabase.auth.resetPasswordForEmail(email, {
                 redirectTo: `${window.location.origin}/reset-password`,
               });
-              setSent(true);
+              setPwBusy(false);
+              if (error) setPwErr(error.message);
+              else setSent(true);
             }}
           >
-            {sent ? "Email sent ✓" : "Change password"}
+            {pwBusy ? "Sending…" : sent ? "Email sent ✓" : "Change password"}
           </button>
         </div>
+        {pwErr && <p style={{ color: "var(--danger)", marginTop: 10 }}>{pwErr}</p>}
+      </div>
+
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="rowMain">Login email</div>
+        <div className="rowSub" style={{ marginBottom: 12 }}>
+          Currently {email}. Changing it sends a confirmation link to the new address.
+        </div>
+        <div className="btnRow">
+          <input
+            className="input"
+            style={{ maxWidth: 280 }}
+            type="email"
+            value={newEmail}
+            onChange={(e) => setNewEmail(e.target.value)}
+            placeholder="new@email.com"
+          />
+          <button
+            className="btn"
+            disabled={emailBusy || !/.+@.+\..+/.test(newEmail)}
+            onClick={async () => {
+              setEmailBusy(true);
+              setEmailErr(null);
+              setEmailMsg(null);
+              const { error } = await createSupabaseBrowser().auth.updateUser({ email: newEmail.trim() });
+              setEmailBusy(false);
+              if (error) setEmailErr(error.message);
+              else setEmailMsg("Check the new address for a confirmation link — the change applies once confirmed.");
+            }}
+          >
+            {emailBusy ? "Sending…" : "Change email"}
+          </button>
+        </div>
+        {emailMsg && <p style={{ color: "var(--ok)", marginTop: 10 }}>{emailMsg}</p>}
+        {emailErr && <p style={{ color: "var(--danger)", marginTop: 10 }}>{emailErr}</p>}
       </div>
 
       {isOwner && (

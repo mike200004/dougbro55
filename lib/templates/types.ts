@@ -23,6 +23,8 @@ export interface FieldDef {
    * pair): once any listed key has a value, the walkthrough skips this field.
    */
   pairedWith?: string[];
+  /** Editor grouping for long forms ("Parties & property", "Attorneys", …). */
+  section?: string;
 }
 
 /** Where to stamp a value on the PDF. y is measured from the bottom-left (pdf-lib). */

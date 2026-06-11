@@ -1,10 +1,21 @@
 "use client";
 
 import { useState } from "react";
+import { useFormStatus } from "react-dom";
 import { createClientAction } from "./actions";
+
+function SaveButton() {
+  const { pending } = useFormStatus();
+  return (
+    <button type="submit" className="btn btnPrimary" disabled={pending}>
+      {pending ? "Saving…" : "Save client"}
+    </button>
+  );
+}
 
 export default function AddClient() {
   const [open, setOpen] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
   if (!open) {
     return (
@@ -17,8 +28,13 @@ export default function AddClient() {
   return (
     <form
       action={async (fd) => {
-        await createClientAction(fd);
-        setOpen(false);
+        setErr(null);
+        try {
+          await createClientAction(fd);
+          setOpen(false);
+        } catch {
+          setErr("Couldn't save the client — please try again.");
+        }
       }}
       className="card"
     >
@@ -53,8 +69,9 @@ export default function AddClient() {
         <label className="label">Notes</label>
         <textarea className="textarea" name="notes" />
       </div>
+      {err && <p style={{ color: "var(--danger)", marginBottom: 10 }}>{err}</p>}
       <div className="btnRow">
-        <button type="submit" className="btn btnPrimary">Save client</button>
+        <SaveButton />
         <button type="button" className="btn" onClick={() => setOpen(false)}>
           Cancel
         </button>
