@@ -18,6 +18,11 @@ export interface FieldDef {
   source?: keyof AgentProfile;
   /** Hint shown to the user and to the AI about what belongs here. */
   hint?: string;
+  /**
+   * Mutually-exclusive companions (e.g. the "is / is not contingent" checkbox
+   * pair): once any listed key has a value, the walkthrough skips this field.
+   */
+  pairedWith?: string[];
 }
 
 /** Where to stamp a value on the PDF. y is measured from the bottom-left (pdf-lib). */
