@@ -7,14 +7,23 @@ import {
   createClient_,
   createDocument,
   createFormTemplate,
+  deleteClient,
+  deleteDocument,
+  deleteFormTemplate,
+  duplicateDocument,
   getDocument,
   getFormTemplate,
   insertMember,
   removeMember,
+  renameFormTemplate,
   saveProfile,
+  setDocumentArchived,
   setMemberStatus,
+  updateClient,
   updateDocument,
 } from "@/lib/db";
+import { logActivity } from "@/lib/activity";
+import { requestSignature } from "@/lib/signing";
 import { admin } from "@/lib/supabase/admin";
 import { requireAccount, getSessionUser } from "@/lib/auth";
 import { normalizePhone } from "@/lib/phone";
@@ -230,7 +239,9 @@ export async function saveDocumentFieldsAction(docId: string, formData: FormData
   revalidatePath("/");
 }
 
-export async function uploadFormAction(formData: FormData): Promise<ActionResult> {
+export async function uploadFormAction(
+  formData: FormData,
+): Promise<{ ok: true } | { ok: false; error: string; flat?: boolean }> {
   const { accountId, userId } = await requireAccount();
   const file = formData.get("file") as File | null;
   if (!file || file.size === 0) return { ok: false, error: "Choose a PDF to upload." };
@@ -244,11 +255,8 @@ export async function uploadFormAction(formData: FormData): Promise<ActionResult
     return { ok: false, error: "Couldn't read that PDF. Make sure it's a valid form." };
   }
   if (!acroFields.length) {
-    return {
-      ok: false,
-      error:
-        "This PDF has no fillable fields yet. Flat/scanned form support is coming soon — for now, upload a fillable (AcroForm) PDF.",
-    };
+    // Flat / scanned form — the client will run vision-based field placement.
+    return { ok: false, flat: true, error: "This form has no fillable fields — let's place them." };
   }
 
   const name = (String(formData.get("name") || "").trim() || file.name.replace(/\.pdf$/i, "")) || "Uploaded form";
@@ -259,6 +267,35 @@ export async function uploadFormAction(formData: FormData): Promise<ActionResult
     kind: "acroform",
     storage_path: storagePath,
     fields: acroFields,
+    created_by: userId,
+  });
+  revalidatePath("/");
+  return { ok: true };
+}
+
+/** Save a flat/scanned form with vision-detected overlay placements. */
+export async function saveOverlayTemplateAction(input: {
+  name: string;
+  pdfBase64: string;
+  fields: { key: string; label: string; type: string; placement: { page: number; x: number; y: number; size?: number; maxWidth?: number } }[];
+}): Promise<ActionResult> {
+  const { accountId, userId } = await requireAccount();
+  if (!input.pdfBase64) return { ok: false, error: "Missing the PDF." };
+  if (!input.fields?.length) return { ok: false, error: "Add at least one field." };
+
+  const bytes = Buffer.from(input.pdfBase64, "base64");
+  const storagePath = `${accountId}/${randomUUID()}.pdf`;
+  await uploadTemplateFile(storagePath, bytes);
+  await createFormTemplate(accountId, {
+    name: input.name.trim() || "Uploaded form",
+    kind: "overlay",
+    storage_path: storagePath,
+    fields: input.fields.map((f) => ({
+      key: f.key,
+      label: f.label,
+      type: "text" as const,
+      placement: f.placement,
+    })),
     created_by: userId,
   });
   revalidatePath("/");
@@ -302,11 +339,122 @@ export async function sendDocumentAction(
 }
 
 export async function setDocumentStatusAction(docId: string, complete: boolean) {
-  const { accountId } = await requireAccount();
+  const { accountId, userId } = await requireAccount();
   const doc = await getDocument(accountId, docId);
   if (!doc) return;
   if (complete && !doc.template_id && missingRequired(doc.type as DocType, doc.fields).length > 0) return;
   await updateDocument(accountId, docId, { status: complete ? "completed" : "draft" });
+  if (complete) await logActivity(accountId, "document_filed", `Filed “${doc.title || "a document"}”.`, { actorId: userId });
   revalidatePath(`/documents/${docId}`);
   revalidatePath("/");
+}
+
+// ---------------------------------------------------------------------------
+// Document lifecycle
+// ---------------------------------------------------------------------------
+
+export async function archiveDocumentAction(docId: string, archived: boolean) {
+  const { accountId } = await requireAccount();
+  await setDocumentArchived(accountId, docId, archived);
+  revalidatePath("/documents");
+  revalidatePath("/");
+}
+
+export async function deleteDocumentAction(docId: string) {
+  const { accountId, userId } = await requireAccount();
+  const doc = await getDocument(accountId, docId);
+  if (!doc) return;
+  await deleteDocument(accountId, docId);
+  await logActivity(accountId, "document_deleted", `Deleted “${doc.title || "a document"}”.`, { actorId: userId });
+  revalidatePath("/documents");
+  revalidatePath("/");
+}
+
+export async function duplicateDocumentAction(docId: string) {
+  const { accountId, userId } = await requireAccount();
+  const copy = await duplicateDocument(accountId, docId, userId);
+  if (copy) redirect(`/documents/${copy.id}`);
+}
+
+export async function requestSignatureAction(input: {
+  docId: string;
+  signerName: string;
+  signerEmail?: string;
+  signerPhone?: string;
+}): Promise<ActionResult> {
+  const { accountId, userId } = await requireAccount();
+  const res = await requestSignature(accountId, {
+    documentId: input.docId,
+    signerName: input.signerName,
+    signerEmail: input.signerEmail || null,
+    signerPhone: input.signerPhone || null,
+    actorId: userId,
+  });
+  revalidatePath(`/documents/${input.docId}`);
+  revalidatePath("/documents");
+  return res.ok ? { ok: true } : { ok: false, error: res.message };
+}
+
+// ---------------------------------------------------------------------------
+// Clients
+// ---------------------------------------------------------------------------
+
+export async function updateClientAction(clientId: string, formData: FormData): Promise<void> {
+  const { accountId } = await requireAccount();
+  await updateClient(accountId, clientId, {
+    full_name: String(formData.get("full_name") || ""),
+    secondary_name: (formData.get("secondary_name") as string) || null,
+    email: (formData.get("email") as string) || null,
+    phone: (formData.get("phone") as string) || null,
+    role: ((formData.get("role") as string) || null) as "buyer" | "seller" | "both" | null,
+    preferences: (formData.get("preferences") as string) || null,
+    notes: (formData.get("notes") as string) || null,
+  });
+  revalidatePath(`/clients/${clientId}`);
+  revalidatePath("/clients");
+  revalidatePath("/");
+}
+
+export async function deleteClientAction(clientId: string) {
+  const { accountId } = await requireAccount();
+  await deleteClient(accountId, clientId);
+  revalidatePath("/clients");
+  redirect("/clients");
+}
+
+// ---------------------------------------------------------------------------
+// Templates
+// ---------------------------------------------------------------------------
+
+export async function renameTemplateAction(templateId: string, name: string) {
+  const { accountId } = await requireAccount();
+  if (name.trim()) await renameFormTemplate(accountId, templateId, name.trim());
+  revalidatePath("/");
+}
+
+export async function deleteTemplateAction(templateId: string) {
+  const { accountId, userId } = await requireAccount();
+  const tpl = await getFormTemplate(accountId, templateId);
+  await deleteFormTemplate(accountId, templateId);
+  if (tpl) await logActivity(accountId, "template_deleted", `Removed the form “${tpl.name}”.`, { actorId: userId });
+  revalidatePath("/");
+}
+
+
+// ---------------------------------------------------------------------------
+// Account deletion (owner only — removes the whole account)
+// ---------------------------------------------------------------------------
+
+export async function deleteAccountAction(confirmText: string): Promise<ActionResult> {
+  const account = await requireAccount();
+  if (account.role !== "owner") return { ok: false, error: "Only the account owner can delete the account." };
+  if (confirmText !== "DELETE") return { ok: false, error: "Type DELETE to confirm." };
+  const sb = admin();
+  // Remove assistants' logins first, then the owner (cascades all account data).
+  const { data: members } = await sb.from("account_members").select("id").eq("account_id", account.accountId);
+  for (const m of members ?? []) {
+    if (m.id !== account.accountId) await sb.auth.admin.deleteUser(m.id);
+  }
+  await sb.auth.admin.deleteUser(account.accountId);
+  return { ok: true };
 }

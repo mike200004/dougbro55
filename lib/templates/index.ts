@@ -3,17 +3,33 @@ import type { TemplateDef } from "./types";
 import { buyerRep } from "./buyerRep";
 import { purchase } from "./purchase";
 import { dualAgency } from "./dualAgency";
+import { generatedTemplates } from "./generated";
 
-export const templates: Record<DocType, TemplateDef> = {
-  buyer_rep: buyerRep,
+/** Display order of the library's category groups. */
+export const templateCategories = [
+  "Agency & representation",
+  "Listings & transactions",
+  "Brokerage & office",
+  "Leasing & compliance",
+] as const;
+
+export const templateList: TemplateDef[] = [
+  buyerRep,
+  dualAgency,
   purchase,
-  dual_agency: dualAgency,
-};
+  ...generatedTemplates,
+];
 
-export const templateList: TemplateDef[] = [buyerRep, purchase, dualAgency];
+export const templates: Record<DocType, TemplateDef> = Object.fromEntries(
+  templateList.map((t) => [t.id, t]),
+) as Record<DocType, TemplateDef>;
 
 export function getTemplate(type: DocType): TemplateDef {
   return templates[type];
+}
+
+export function isDocType(type: string): type is DocType {
+  return type in templates;
 }
 
 /** Fields the user/AI must supply (excludes profile-sourced auto fields). */

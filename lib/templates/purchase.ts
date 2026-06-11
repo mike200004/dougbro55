@@ -3,6 +3,7 @@ import type { TemplateDef } from "./types";
 // Coordinates derived from the source PDF (612x792). y is from bottom-left.
 export const purchase: TemplateDef = {
   id: "purchase",
+  category: "Listings & transactions",
   name: "Purchase Agreement",
   shortName: "Purchase",
   description: "SmartMLS residential purchase agreement (Connecticut).",

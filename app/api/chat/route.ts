@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { hasAiKey } from "@/lib/ai";
 import { runConversation, Turn } from "@/lib/conversation";
 import { getAccount } from "@/lib/auth";
+import { getProfile } from "@/lib/db";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -31,12 +32,14 @@ export async function POST(req: NextRequest) {
   }
 
   const transcript: Turn[] = Array.isArray(body.messages) ? body.messages : [];
+  const profile = await getProfile(account.accountId);
 
   try {
     const { reply, toolEvents } = await runConversation(transcript, {
       accountId: account.accountId,
       actorId: account.userId,
       actorName: account.name,
+      actorPhone: profile?.phone || undefined,
       role: account.role,
     });
     return NextResponse.json({

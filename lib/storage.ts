@@ -29,3 +29,12 @@ export async function downloadTemplateFile(path: string): Promise<Buffer> {
   if (error || !data) throw new Error(error?.message || "Template file not found");
   return Buffer.from(await data.arrayBuffer());
 }
+
+/** Store a completed (signed) PDF; lives in the same private bucket. */
+export async function uploadSignedFile(path: string, bytes: Uint8Array): Promise<void> {
+  await ensureTemplatesBucket();
+  const { error } = await admin()
+    .storage.from(BUCKET)
+    .upload(path, Buffer.from(bytes), { contentType: "application/pdf", upsert: true });
+  if (error) throw new Error(error.message);
+}

@@ -30,6 +30,7 @@ export async function runConversation(
     accountId: string;
     actorId?: string;
     actorName?: string;
+    actorPhone?: string;
     role?: "owner" | "assistant";
     maxRounds?: number;
     systemSuffix?: string;
@@ -104,6 +105,7 @@ export async function runConversation(
         result = await runTool(tc.function.name, args, {
           accountId: opts.accountId,
           actorId: opts.actorId,
+          actorPhone: opts.actorPhone,
         });
       } catch (err) {
         result = { error: err instanceof Error ? err.message : String(err) };

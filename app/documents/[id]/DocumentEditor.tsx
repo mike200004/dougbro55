@@ -127,7 +127,82 @@ export default function DocumentEditor({
       </div>
 
       <SendByText docId={docId} disabled={missing.length > 0} />
+      <SendForSignature docId={docId} disabled={missing.length > 0} />
     </form>
+  );
+}
+
+function SendForSignature({ docId, disabled }: { docId: string; disabled: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  return (
+    <div style={{ marginTop: 24, borderTop: "1px solid var(--border)", paddingTop: 20 }}>
+      <h2 className="sectionTitle">Send for signature</h2>
+      {disabled ? (
+        <p className="muted">Fill the required fields above to enable e-signature.</p>
+      ) : !open ? (
+        <>
+          {msg && <p style={{ color: "var(--ok)", marginBottom: 10 }}>{msg}</p>}
+          <button type="button" className="btn" onClick={() => setOpen(true)}>
+            Request an e-signature
+          </button>
+        </>
+      ) : (
+        <div className="card">
+          <div className="formGrid">
+            <div className="field">
+              <label className="label">Signer’s full name</label>
+              <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
+            </div>
+            <div className="field">
+              <label className="label">Signer’s email</label>
+              <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+            </div>
+            <div className="field">
+              <label className="label">…or mobile number</label>
+              <input className="input" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(203) 555-0123" />
+            </div>
+          </div>
+          {err && <p style={{ color: "var(--danger)", marginBottom: 10 }}>{err}</p>}
+          <div className="btnRow">
+            <button
+              type="button"
+              className="btn btnPrimary"
+              disabled={busy || !name.trim() || (!email.trim() && !phone.trim())}
+              onClick={async () => {
+                setBusy(true);
+                setErr(null);
+                const { requestSignatureAction } = await import("@/app/actions");
+                const res = await requestSignatureAction({
+                  docId,
+                  signerName: name,
+                  signerEmail: email,
+                  signerPhone: phone,
+                });
+                setBusy(false);
+                if (res.ok) {
+                  setMsg(`Signature request sent to ${name}. You'll be notified the moment they sign.`);
+                  setOpen(false);
+                } else {
+                  setErr(res.error);
+                }
+              }}
+            >
+              {busy ? "Sending…" : "Send request"}
+            </button>
+            <button type="button" className="btn" onClick={() => setOpen(false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

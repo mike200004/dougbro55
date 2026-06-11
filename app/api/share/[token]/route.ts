@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDocumentById } from "@/lib/db";
 import { verifyShareToken } from "@/lib/share";
 import { renderDocument } from "@/lib/pdf/fill";
+import { rateLimit, clientIp } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
 
@@ -10,6 +11,9 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ token: string }> },
 ) {
+  if (!rateLimit(`share:${clientIp(_req)}`, 60, 60_000)) {
+    return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+  }
   const { token } = await params;
   const docId = verifyShareToken(token);
   if (!docId) {

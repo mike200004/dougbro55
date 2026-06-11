@@ -6,6 +6,7 @@ export type FieldType =
   | "date"
   | "currency"
   | "percent"
+  | "checkbox"
   | "initials";
 
 export interface FieldDef {
@@ -34,6 +35,14 @@ export interface TemplateDef {
   /** Short human label for the document type. */
   shortName: string;
   description: string;
+  /** Library grouping shown in the dashboard ("Brokerage & office", …). */
+  category: string;
+  /**
+   * How the PDF is filled: "overlay" stamps text at mapped coordinates
+   * (scanned originals); "acroform" fills embedded form fields named after
+   * the field keys (our generated documents). Defaults to overlay.
+   */
+  kind?: "overlay" | "acroform";
   /** Path to the source PDF relative to the project root. */
   file: string;
   pages: number;

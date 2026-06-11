@@ -8,19 +8,28 @@ import {
   getFormTemplate,
   getProfile,
   listClients,
+  listDocuments,
   listFormTemplates,
   rememberAboutClient,
   rememberParties,
   updateDocument,
 } from "@/lib/db";
-import { getTemplate, missingRequired, userFields } from "@/lib/templates";
+import { logActivity } from "@/lib/activity";
+import { defer } from "@/lib/defer";
+import { requestSignature } from "@/lib/signing";
+import { getTemplate, isDocType, missingRequired, templateList, userFields } from "@/lib/templates";
 import type { DocumentRecord } from "@/lib/types";
 import { makeShareToken } from "@/lib/share";
 import { sendSms } from "@/lib/twilio";
+import { sendEmail, emailConfigured } from "@/lib/email";
+import { renderDocument } from "@/lib/pdf/fill";
 import { normalizePhone } from "@/lib/phone";
 import type { DocType } from "@/lib/types";
 
-const DOC_TYPES: DocType[] = ["buyer_rep", "purchase", "dual_agency"];
+const DOC_TYPES: DocType[] = templateList.map((t) => t.id);
+const DOC_TYPE_GUIDE = templateList
+  .map((t) => `${t.id} = ${t.name}`)
+  .join("; ");
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://pheme.deals";
 
 /** Provider-neutral tool spec. `parameters` is a JSON Schema. */
@@ -85,21 +94,20 @@ export const toolSpecs: ToolSpec[] = [
   {
     name: "list_form_templates",
     description:
-      "List the agent's own uploaded form templates (forms they've uploaded, like a SmartMLS form or a brokerage document) that can be filled out. Call this when the agent refers to a form that isn't one of the three built-in types.",
+      "List the agent's own uploaded form templates (forms they've uploaded, like a SmartMLS form or a brokerage document) that can be filled out. Call this when the agent refers to a form that isn't in the built-in library.",
     parameters: { type: "object", properties: {} },
   },
   {
     name: "create_document",
     description:
-      "Start a new document. Use `type` for a built-in CT form, OR `template_name`/`template_id` to start a copy of one of the agent's uploaded forms. Returns the document id and the fields to collect.",
+      "Start a new document. Use `type` for a document from the built-in library, OR `template_name`/`template_id` to start a copy of one of the agent's uploaded forms. Returns the document id and the fields to collect.",
     parameters: {
       type: "object",
       properties: {
         type: {
           type: "string",
           enum: DOC_TYPES,
-          description:
-            "Built-in form: buyer_rep = Exclusive Right to Represent Buyer; purchase = Purchase Agreement; dual_agency = Dual Agency Consent.",
+          description: `Built-in library: ${DOC_TYPE_GUIDE}.`,
         },
         template_name: {
           type: "string",
@@ -151,15 +159,56 @@ export const toolSpecs: ToolSpec[] = [
   {
     name: "send_document",
     description:
-      "Text the completed document to a recipient as a secure download link (e.g. to a client, attorney, or the other agent). All required fields must be filled first. Provide the recipient's phone number.",
+      "Text the completed document as a secure download link. Use this when the agent says to send it somewhere — to a client/attorney/other agent (give their number), or to THEMSELVES (e.g. 'text it to me', 'send it to my phone') — in which case omit to_phone and it goes to the agent's own number.",
     parameters: {
       type: "object",
       properties: {
         document_id: { type: "string" },
-        to_phone: { type: "string", description: "Recipient's phone number." },
+        to_phone: {
+          type: "string",
+          description: "Recipient's phone number. Omit (or leave blank) to send to the agent themselves.",
+        },
         recipient_name: { type: "string", description: "Optional recipient name for the message." },
       },
-      required: ["document_id", "to_phone"],
+      required: ["document_id"],
+    },
+  },
+  {
+    name: "email_document",
+    description:
+      "Email the completed document as a PDF attachment. Use when the agent says to email it — to someone (give their email), or to THEMSELVES ('email it to me') in which case omit to_email and it goes to the agent's email on file. Required fields must be filled first.",
+    parameters: {
+      type: "object",
+      properties: {
+        document_id: { type: "string" },
+        to_email: { type: "string", description: "Recipient email. Omit to email the agent themselves." },
+        recipient_name: { type: "string", description: "Optional recipient name." },
+      },
+      required: ["document_id"],
+    },
+  },
+  {
+    name: "request_signature",
+    description:
+      "Send a document out for e-signature. The signer gets a secure link (by email and/or text) to review and sign; the executed copy comes back to the agent automatically. Use when the agent says things like 'send it to Bob for signature' or 'get this signed'. Requires the signer's email or mobile number.",
+    parameters: {
+      type: "object",
+      properties: {
+        document_id: { type: "string" },
+        signer_name: { type: "string", description: "The signer's full name." },
+        signer_email: { type: "string", description: "Signer's email (preferred)." },
+        signer_phone: { type: "string", description: "Signer's mobile number (alternative)." },
+      },
+      required: ["document_id", "signer_name"],
+    },
+  },
+  {
+    name: "list_documents",
+    description:
+      "List the agent's recent documents (title, status, type) — use when they ask 'what did we file', want to reopen something, or reference an earlier document by name.",
+    parameters: {
+      type: "object",
+      properties: { query: { type: "string", description: "Optional name/title filter." } },
     },
   },
 ];
@@ -184,6 +233,20 @@ interface DocSchema {
   validKeys: Set<string>;
   fields: { key: string; label: string; type: string; required: boolean; options?: string[] }[];
   missing: (values: Record<string, string>) => string[];
+  uploaded: boolean;
+  /** Map a possibly-loose incoming key (e.g. "client_name") to the real field key. */
+  resolveKey: (incoming: string) => string | null;
+}
+
+const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+function makeResolver(fields: { key: string; label: string }[]): (k: string) => string | null {
+  const map = new Map<string, string>();
+  for (const f of fields) {
+    map.set(norm(f.key), f.key);
+    if (f.label) map.set(norm(f.label), f.key);
+  }
+  return (incoming: string) => map.get(norm(incoming)) ?? null;
 }
 
 /** Field schema for a document — built-in template OR uploaded form template. */
@@ -201,19 +264,63 @@ async function docSchema(acc: string, doc: DocumentRecord): Promise<DocSchema> {
       validKeys: new Set(fields.map((f) => f.key)),
       fields,
       missing: () => [], // uploaded forms have no required-field metadata
+      uploaded: true,
+      resolveKey: makeResolver(fields),
     };
   }
   const type = doc.type as DocType;
+  const fields = fieldSchemaFor(type);
   return {
     validKeys: new Set(userFields(type).filter((f) => !f.source).map((f) => f.key)),
-    fields: fieldSchemaFor(type),
+    fields,
     missing: (values) => missingLabels(type, values),
+    uploaded: false,
+    resolveKey: makeResolver(fields),
+  };
+}
+
+/**
+ * Voice walkthrough cursor: tells the model exactly what to ask next so a
+ * phone call moves through a form top-to-bottom instead of jumping around.
+ * Built-ins walk the missing REQUIRED fields in schema order; uploaded forms
+ * (no required metadata) walk every unfilled field in template order, with a
+ * progress note so long forms feel like progress, not an interrogation.
+ */
+function walkCursor(
+  schema: DocSchema,
+  values: Record<string, string>,
+): { next_field: string | null; progress?: string; note?: string } {
+  const requiredMissing = schema.missing(values);
+  if (requiredMissing.length) {
+    return { next_field: requiredMissing[0] };
+  }
+  if (schema.uploaded) {
+    const unfilled = schema.fields.filter((f) => !String(values[f.key] ?? "").trim());
+    const done = schema.fields.length - unfilled.length;
+    if (unfilled.length) {
+      return {
+        next_field: unfilled[0].label,
+        progress: `${done} of ${schema.fields.length} fields filled`,
+      };
+    }
+    return { next_field: null, note: "Every field is filled — recap the key details, get a yes, then finalize." };
+  }
+  return {
+    next_field: null,
+    note: "All required fields are filled — recap the key details, get a yes, then finalize. Optional fields only if the caller brings them up.",
   };
 }
 
 export interface ToolContext {
   accountId: string;
   actorId?: string; // who is acting (owner or assistant member id)
+  actorPhone?: string; // the acting agent's own phone (caller/sender) — for "send it to me"
+  /**
+   * "voice" gets compact tool results: every token in a result is re-read by
+   * the conversation LLM on EVERY later turn of the call, so big payloads make
+   * the whole call slower. Web/SMS keep the full shapes.
+   */
+  channel?: "voice" | "sms" | "web";
 }
 
 export async function runTool(
@@ -222,14 +329,28 @@ export async function runTool(
   ctx: ToolContext,
 ): Promise<unknown> {
   const acc = ctx.accountId;
+  const voice = ctx.channel === "voice";
   switch (name) {
     case "get_agent_profile": {
       const profile = await getProfile(acc);
       return profile ?? { note: "No agent profile set yet. Ask the user to fill it in Settings." };
     }
 
-    case "list_clients":
-      return await listClients(acc);
+    case "list_clients": {
+      const clients = await listClients(acc);
+      if (!voice) return clients;
+      clients.sort((a, b) =>
+        (b.last_seen_at ?? b.created_at).localeCompare(a.last_seen_at ?? a.created_at),
+      );
+      return {
+        count: clients.length,
+        clients: clients.slice(0, 25).map((c) => ({
+          name: c.secondary_name ? `${c.full_name} & ${c.secondary_name}` : c.full_name,
+          role: c.role,
+        })),
+        note: "Details for any of them via recall_client.",
+      };
+    }
 
     case "recall_client": {
       const dossier = await getClientDossier(acc, String(input.name || ""));
@@ -245,14 +366,17 @@ export async function runTool(
         preferences: client.preferences,
         notes: client.notes,
         co_parties: coParties,
-        deals: deals.map((d) => ({ type: d.type, property: d.property, status: d.status, date: d.date })),
+        deals: (voice ? deals.slice(0, 5) : deals).map((d) => ({ type: d.type, property: d.property, status: d.status, date: d.date })),
       };
     }
 
     case "remember_about_client": {
       const c = await rememberAboutClient(acc, String(input.name || ""), String(input.note || ""));
       if (!c) return { ok: false, message: `No client named "${input.name}" found to attach that to.` };
-      return { ok: true, name: c.full_name, preferences: c.preferences, message: "Got it — I'll remember that." };
+      // Voice: don't echo the ever-growing preferences string back into the call context.
+      return voice
+        ? { ok: true, name: c.full_name, message: "Got it — I'll remember that." }
+        : { ok: true, name: c.full_name, preferences: c.preferences, message: "Got it — I'll remember that." };
     }
 
     case "create_client": {
@@ -284,8 +408,27 @@ export async function runTool(
           client_id: (input.client_id as string) ?? null,
           created_by: ctx.actorId ?? null,
         });
-        const schema = await docSchema(acc, doc);
-        return { document_id: doc.id, template: tpl.name, title: doc.title, fields: schema.fields, missing_required: [] };
+        // Build the schema from the template already in hand — no re-fetch.
+        const fields = tpl.fields.map((f) => ({
+          key: f.key,
+          label: f.label,
+          type: f.type,
+          required: false,
+          options: f.options,
+        }));
+        if (voice) {
+          const labels = fields.map((f) => f.label);
+          return {
+            document_id: doc.id,
+            template: tpl.name,
+            title: doc.title,
+            total_fields: labels.length,
+            ask_in_order: labels.slice(0, 40),
+            start_with: labels[0] ?? null,
+            note: "Walk the form top to bottom in this exact order, one field at a time. Set values with set_document_fields using these labels as keys; its result tells you the next field to ask.",
+          };
+        }
+        return { document_id: doc.id, template: tpl.name, title: doc.title, fields, missing_required: [] };
       }
 
       const type = input.type as DocType;
@@ -302,6 +445,21 @@ export async function runTool(
         client_id: (input.client_id as string) ?? null,
         created_by: ctx.actorId ?? null,
       });
+      if (voice) {
+        // Labels only — the fuzzy key resolver accepts labels as keys, and the
+        // voice model never needs machine keys/types/hints.
+        const fields = userFields(type);
+        const required = fields.filter((f) => f.required).map((f) => f.label);
+        return {
+          document_id: doc.id,
+          type,
+          title: doc.title,
+          ask_in_order: required,
+          optional: fields.filter((f) => !f.required).map((f) => f.label),
+          start_with: required[0] ?? null,
+          note: "Collect the fields in this exact order, one at a time. Set values with set_document_fields using these labels as keys; its result tells you the next field to ask.",
+        };
+      }
       return {
         document_id: doc.id,
         type,
@@ -325,24 +483,48 @@ export async function runTool(
       const accepted: Record<string, string> = {};
       const rejected: string[] = [];
       for (const [k, v] of Object.entries(incoming)) {
-        if (schema.validKeys.has(k)) accepted[k] = String(v);
+        const canonical = schema.validKeys.has(k) ? k : schema.resolveKey(k);
+        if (canonical) accepted[canonical] = String(v);
         else rejected.push(k);
       }
-      const updated = await updateDocument(acc, docId, { fields: accepted });
-      await rememberParties(acc, updated); // auto-learn the parties + property
+      const updated = await updateDocument(acc, docId, { fields: accepted }, doc);
+      // Voice: auto-learn AFTER the response — it's bookkeeping, and this tool
+      // runs on nearly every turn of a call. Web/SMS run a multi-round tool
+      // loop in ONE request, where a later recall_client in the same turn must
+      // see the just-learned parties — keep it awaited there.
+      if (voice) defer(() => rememberParties(acc, updated));
+      else await rememberParties(acc, updated);
       return {
         document_id: docId,
         updated_fields: Object.keys(accepted),
-        rejected_unknown_keys: rejected,
+        ...(rejected.length
+          ? { rejected_unknown_keys: rejected, warning: "Those keys did NOT save — re-ask and set them with the field labels." }
+          : {}),
         missing_required: schema.missing(updated.fields),
+        ...(voice ? walkCursor(schema, updated.fields) : {}),
       };
     }
 
     case "get_document": {
       const docId = String(input.document_id);
       const doc = await getDocument(acc, docId);
-      if (!doc) return { error: `Document ${docId} not found` };
+      if (!doc) return { error: `Document ${docId} not found — use the id returned by create_document, or find it with list_documents.` };
       const schema = await docSchema(acc, doc);
+      if (voice) {
+        const byKey = new Map(schema.fields.map((f) => [f.key, f.label]));
+        const filled: Record<string, string> = {};
+        for (const [k, v] of Object.entries(doc.fields)) {
+          if (String(v).trim()) filled[byKey.get(k) ?? k] = String(v);
+        }
+        return {
+          document_id: doc.id,
+          title: doc.title,
+          status: doc.status,
+          filled,
+          missing_required: schema.missing(doc.fields),
+          ...walkCursor(schema, doc.fields),
+        };
+      }
       return {
         document_id: doc.id,
         type: doc.type,
@@ -357,8 +539,9 @@ export async function runTool(
     case "finalize_document": {
       const docId = String(input.document_id);
       const doc = await getDocument(acc, docId);
-      if (!doc) return { error: `Document ${docId} not found` };
-      const missing = (await docSchema(acc, doc)).missing(doc.fields);
+      if (!doc) return { error: `Document ${docId} not found — use the id returned by create_document, or find it with list_documents.` };
+      // Uploaded forms have no required-field metadata — skip the template fetch.
+      const missing = !doc.template_id && isDocType(doc.type) ? missingLabels(doc.type, doc.fields) : [];
       if (missing.length) {
         return {
           ok: false,
@@ -366,26 +549,46 @@ export async function runTool(
           message: "Cannot finalize: required fields are still missing.",
         };
       }
+      // Don't file a totally blank uploaded form.
+      if (doc.template_id && Object.values(doc.fields).every((v) => !String(v).trim())) {
+        return {
+          ok: false,
+          message: "Set at least one field on this form before filing it.",
+        };
+      }
       const updated = await updateDocument(acc, docId, { status: "completed" });
-      await rememberParties(acc, doc); // ensure parties + property are remembered
+      if (voice) defer(() => rememberParties(acc, doc));
+      else await rememberParties(acc, doc); // ensure parties + property are remembered
+      await logActivity(acc, "document_filed", `Filed “${updated.title || "a document"}”.`, { actorId: ctx.actorId });
       return {
         ok: true,
         document_id: updated.id,
         status: updated.status,
-        message: "Document filed to the dashboard. The agent can download the filled PDF.",
+        message: "Filed. It can be downloaded from the dashboard, texted, emailed, or sent for signature.",
       };
     }
 
     case "send_document": {
       const docId = String(input.document_id);
       const doc = await getDocument(acc, docId);
-      if (!doc) return { error: `Document ${docId} not found` };
-      const missing = (await docSchema(acc, doc)).missing(doc.fields);
+      if (!doc) return { error: `Document ${docId} not found — use the id returned by create_document, or find it with list_documents.` };
+      const missing = !doc.template_id && isDocType(doc.type) ? missingLabels(doc.type, doc.fields) : [];
       if (missing.length) {
         return { ok: false, missing_required: missing, message: "Fill the required fields before sending." };
       }
-      const to = normalizePhone(String(input.to_phone));
-      if (!to) return { ok: false, message: "A valid recipient phone number is required." };
+      // "Send it to me" / no recipient → the caller's own number, falling back
+      // to the phone on their profile. Never make the caller dictate the
+      // number they're calling from.
+      const explicitTo = normalizePhone(String(input.to_phone || ""));
+      const profile = explicitTo ? null : await getProfile(acc);
+      const to = explicitTo || ctx.actorPhone || normalizePhone(profile?.phone || "") || "";
+      if (!to) {
+        return {
+          ok: false,
+          message: "I don't have a mobile number on file for you — what's the best number to text it to?",
+        };
+      }
+      const toSelf = !explicitTo;
 
       const docName = doc.template_id ? doc.title || "document" : getTemplate(doc.type as DocType).name;
       const link = `${SITE_URL}/api/share/${makeShareToken(docId)}`;
@@ -396,12 +599,94 @@ export async function runTool(
       if (!sent.ok) {
         return { ok: false, message: `Could not send the text: ${sent.error}` };
       }
+
+      // Carriers can silently drop texts from a number that hasn't finished
+      // A2P registration — for self-sends, also email the link so the agent
+      // always has a copy that arrives.
+      let emailedToo = false;
+      const selfEmail = toSelf ? (profile ?? (await getProfile(acc)))?.email || "" : "";
+      if (toSelf && selfEmail && emailConfigured()) {
+        emailedToo = true;
+        defer(() =>
+          sendEmail({
+            to: selfEmail,
+            subject: docName,
+            html: `<p>Here’s your ${docName}: <a href="${link}">view &amp; download the PDF</a>.</p><p>— Pheme</p>`,
+          }),
+        );
+      }
+
+      await logActivity(acc, "document_sent", `Texted “${doc.title || "a document"}” to ${toSelf ? "the agent" : to}.`, { actorId: ctx.actorId });
       return {
         ok: true,
         to,
         link,
-        message: `Sent the link by text to ${to}.`,
+        message: toSelf
+          ? emailedToo
+            ? "Texted it to your phone and emailed you a copy."
+            : "Texted it to your phone."
+          : `Sent the link by text to ${to}.`,
       };
+    }
+
+    case "email_document": {
+      const docId = String(input.document_id);
+      const doc = await getDocument(acc, docId);
+      if (!doc) return { error: `Document ${docId} not found — use the id returned by create_document, or find it with list_documents.` };
+      const miss = !doc.template_id && isDocType(doc.type) ? missingLabels(doc.type, doc.fields) : [];
+      if (miss.length) {
+        return { ok: false, missing_required: miss, message: "Fill the required fields before sending." };
+      }
+      if (doc.template_id && Object.values(doc.fields).every((v) => !String(v).trim())) {
+        return { ok: false, message: "Fill at least one field before sending." };
+      }
+      let to = String(input.to_email || "").trim();
+      if (!to) to = (await getProfile(acc))?.email || ""; // "email it to me"
+      if (!/.+@.+\..+/.test(to)) {
+        return { ok: false, message: "What email address should I send it to?" };
+      }
+      const { bytes, filename } = await renderDocument(doc);
+      const docName = doc.template_id ? doc.title || "your document" : getTemplate(doc.type as DocType).name;
+      const link = `${SITE_URL}/api/share/${makeShareToken(docId)}`;
+      const who = (input.recipient_name as string)?.trim();
+      const sent = await sendEmail({
+        to,
+        subject: `${docName}${who ? ` for ${who}` : ""}`,
+        html: `<p>${who ? `${who}, here` : "Here"}'s your ${docName}, attached as a PDF.</p><p>You can also <a href="${link}">view it online</a>.</p><p>— Pheme</p>`,
+        attachment: { filename: `${filename}.pdf`, contentBase64: Buffer.from(bytes).toString("base64") },
+      });
+      if (!sent.ok) {
+        return sent.configured
+          ? { ok: false, message: `Couldn't email it: ${sent.error}` }
+          : { ok: false, message: "Email isn't set up yet on this account — I can text you the link instead." };
+      }
+      await logActivity(acc, "document_emailed", `Emailed “${doc.title || "a document"}” to ${to}.`, { actorId: ctx.actorId });
+      return { ok: true, to, message: `Emailed it to ${to}.` };
+    }
+
+    case "request_signature": {
+      // requestSignature fetches and validates the document itself — no pre-fetch.
+      const rs = await requestSignature(acc, {
+        documentId: String(input.document_id),
+        signerName: String(input.signer_name || ""),
+        signerEmail: (input.signer_email as string) || null,
+        signerPhone: (input.signer_phone as string) || null,
+        actorId: ctx.actorId ?? null,
+      });
+      return rs;
+    }
+
+    case "list_documents": {
+      const docs = await listDocuments(acc);
+      const q = String(input.query || "").toLowerCase().trim();
+      const filtered = q ? docs.filter((d) => (d.title || "").toLowerCase().includes(q)) : docs;
+      return filtered.slice(0, voice ? 8 : 12).map((d) => ({
+        document_id: d.id,
+        title: d.title,
+        status: d.status,
+        type: d.type === "uploaded" ? "uploaded form" : d.type,
+        updated_at: voice ? d.updated_at.slice(0, 10) : d.updated_at,
+      }));
     }
 
     default:

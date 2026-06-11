@@ -4,6 +4,7 @@ import { requireAccount } from "@/lib/auth";
 import { saveProfileAction } from "@/app/actions";
 import type { AgentProfile } from "@/lib/types";
 import Team from "./Team";
+import Security from "./Security";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +19,8 @@ const FIELDS: { key: keyof AgentProfile; label: string; hint?: string }[] = [
 ];
 
 export default async function SettingsPage() {
-  const { accountId, role } = await requireAccount();
+  const account = await requireAccount();
+  const { accountId, role } = account;
   const [profile, members] = await Promise.all([
     getProfile(accountId),
     listMembers(accountId),
@@ -71,6 +73,11 @@ export default async function SettingsPage() {
         }))}
         isOwner={isOwner}
       />
+
+      <section>
+        <h2 className="sectionTitle">Security</h2>
+        <Security email={account.email || profile?.email || ""} isOwner={isOwner} />
+      </section>
     </div>
   );
 }

@@ -3,6 +3,7 @@ import type { TemplateDef } from "./types";
 // Coordinates derived from the source PDF (612x792). y is from bottom-left.
 export const dualAgency: TemplateDef = {
   id: "dual_agency",
+  category: "Agency & representation",
   name: "Dual Agency Consent Agreement",
   shortName: "Dual Agency",
   description:
