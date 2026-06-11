@@ -220,6 +220,7 @@ function fieldSchemaFor(type: DocType) {
     type: f.type,
     required: Boolean(f.required),
     hint: f.hint,
+    pairedWith: f.pairedWith,
   }));
 }
 
@@ -231,7 +232,7 @@ function missingLabels(type: DocType, values: Record<string, string>) {
 
 interface DocSchema {
   validKeys: Set<string>;
-  fields: { key: string; label: string; type: string; required: boolean; options?: string[] }[];
+  fields: { key: string; label: string; type: string; required: boolean; options?: string[]; pairedWith?: string[] }[];
   missing: (values: Record<string, string>) => string[];
   uploaded: boolean;
   /** Map a possibly-loose incoming key (e.g. "client_name") to the real field key. */
@@ -281,33 +282,35 @@ async function docSchema(acc: string, doc: DocumentRecord): Promise<DocSchema> {
 
 /**
  * Voice walkthrough cursor: tells the model exactly what to ask next so a
- * phone call moves through a form top-to-bottom instead of jumping around.
- * Built-ins walk the missing REQUIRED fields in schema order; uploaded forms
- * (no required metadata) walk every unfilled field in template order, with a
- * progress note so long forms feel like progress, not an interrogation.
+ * phone call moves through the ENTIRE form top-to-bottom — required and
+ * optional lines alike — instead of jumping around or stopping after the
+ * required handful. Skipped lines get "-" (the standard dash through an
+ * unused blank), which also advances the cursor. A field whose pairedWith
+ * companion is already set (e.g. the "is / is not contingent" pair) counts
+ * as handled.
  */
 function walkCursor(
   schema: DocSchema,
   values: Record<string, string>,
-): { next_field: string | null; progress?: string; note?: string } {
-  const requiredMissing = schema.missing(values);
-  if (requiredMissing.length) {
-    return { next_field: requiredMissing[0] };
+): { next_field: string | null; next_is_optional?: boolean; progress?: string; note?: string } {
+  const filled = new Set(
+    Object.entries(values)
+      .filter(([, v]) => String(v ?? "").trim())
+      .map(([k]) => k),
+  );
+  const remaining = schema.fields.filter(
+    (f) => !filled.has(f.key) && !(f.pairedWith ?? []).some((p) => filled.has(p)),
+  );
+  const total = schema.fields.length;
+  const done = total - remaining.length;
+  if (!remaining.length) {
+    return { next_field: null, note: "Every line is handled — recap the key details, get a yes, then finalize." };
   }
-  if (schema.uploaded) {
-    const unfilled = schema.fields.filter((f) => !String(values[f.key] ?? "").trim());
-    const done = schema.fields.length - unfilled.length;
-    if (unfilled.length) {
-      return {
-        next_field: unfilled[0].label,
-        progress: `${done} of ${schema.fields.length} fields filled`,
-      };
-    }
-    return { next_field: null, note: "Every field is filled — recap the key details, get a yes, then finalize." };
-  }
+  const next = remaining[0];
   return {
-    next_field: null,
-    note: "All required fields are filled — recap the key details, get a yes, then finalize. Optional fields only if the caller brings them up.",
+    next_field: next.label,
+    ...(next.required ? {} : { next_is_optional: true }),
+    progress: `${done} of ${total} lines handled`,
   };
 }
 
@@ -449,15 +452,15 @@ export async function runTool(
         // Labels only — the fuzzy key resolver accepts labels as keys, and the
         // voice model never needs machine keys/types/hints.
         const fields = userFields(type);
-        const required = fields.filter((f) => f.required).map((f) => f.label);
+        const labels = fields.map((f) => f.label);
         return {
           document_id: doc.id,
           type,
           title: doc.title,
-          ask_in_order: required,
-          optional: fields.filter((f) => !f.required).map((f) => f.label),
-          start_with: required[0] ?? null,
-          note: "Collect the fields in this exact order, one at a time. Set values with set_document_fields using these labels as keys; its result tells you the next field to ask.",
+          ask_in_order: labels,
+          required: fields.filter((f) => f.required).map((f) => f.label),
+          start_with: labels[0] ?? null,
+          note: "Walk the WHOLE document in this exact order, one line at a time — don't stop after the required ones. Set values with set_document_fields using these labels as keys; its result tells you the next line. Skipped line = set it to '-'.",
         };
       }
       return {

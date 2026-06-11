@@ -80,11 +80,17 @@ export async function fillDocument(
     const value = field.source
       ? profile?.[field.source] ?? ""
       : fields[field.key] ?? "";
-    if (!value || !String(value).trim()) continue;
+    const v = String(value).trim();
+    if (!v) continue;
 
     const page = pages[placement.page];
     if (!page) continue;
-    drawFitted(page, font, String(value).trim(), placement);
+    // Checkboxes: draw an X only when checked — never the literal value.
+    if (field.type === "checkbox") {
+      if (CHECK_TRUTHY.test(v)) drawFitted(page, font, "X", placement);
+      continue;
+    }
+    drawFitted(page, font, v, placement);
   }
 
   return pdf.save();
@@ -185,6 +191,10 @@ export async function fillTemplateDocument(
     if (!value || !field.placement) continue;
     const page = pages[field.placement.page];
     if (!page) continue;
+    if (field.type === "checkbox") {
+      if (CHECK_TRUTHY.test(value)) drawFitted(page, font, "X", field.placement);
+      continue;
+    }
     drawFitted(page, font, value, field.placement);
   }
   return pdf.save();
