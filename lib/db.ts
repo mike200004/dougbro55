@@ -2,6 +2,7 @@ import { admin } from "@/lib/supabase/admin";
 import type {
   AgentProfile,
   Client,
+  ContactRole,
   DocumentRecord,
   DocumentType,
   DocType,
@@ -174,14 +175,18 @@ export async function getClient(
 
 export async function createClient_(
   accountId: string,
-  input: Omit<Client, "id" | "created_at" | "preferences" | "last_seen_at"> & {
+  input: Omit<Client, "id" | "created_at" | "preferences" | "last_seen_at" | "company"> & {
+    company?: string | null;
     preferences?: string | null;
     last_seen_at?: string | null;
   },
 ): Promise<Client> {
+  // Omit company when empty so accounts whose DB predates migration 0009
+  // (no company column yet) keep working for plain client rows.
+  const { company, ...rest } = input;
   const { data, error } = await admin()
     .from("clients")
-    .insert({ ...input, account_id: accountId })
+    .insert({ ...rest, ...(company ? { company } : {}), account_id: accountId })
     .select()
     .single();
   if (error) throw new Error(error.message);
@@ -191,7 +196,7 @@ export async function createClient_(
 export async function updateClient(
   accountId: string,
   clientId: string,
-  patch: Partial<Pick<Client, "full_name" | "secondary_name" | "email" | "phone" | "role" | "notes" | "preferences">>,
+  patch: Partial<Pick<Client, "full_name" | "secondary_name" | "email" | "phone" | "role" | "company" | "notes" | "preferences">>,
 ): Promise<void> {
   await admin().from("clients").update(patch).eq("account_id", accountId).eq("id", clientId);
 }
@@ -208,17 +213,23 @@ function normName(s: string | null | undefined): string {
   return (s ?? "").toLowerCase().replace(/\s+/g, " ").trim();
 }
 
+// Skipped voice lines get "-" (a dash through the blank) — never a name.
+function cleanVal(v: string | undefined | null): string {
+  const s = (v ?? "").trim();
+  return /^(-|—|n\/a|none)$/i.test(s) ? "" : s;
+}
+
 // Field keys differ by template: most use buyerName/sellerName/propertyAddress;
 // buyer_rep uses buyerNames/propertyDescription (no seller); the rental
 // application's applicant is the buyer-side party.
 function docBuyer(f?: Record<string, string> | null): string {
-  return f?.buyerName || f?.buyerNames || f?.applicantName || "";
+  return cleanVal(f?.buyerName) || cleanVal(f?.buyerNames) || cleanVal(f?.applicantName);
 }
 function docSeller(f?: Record<string, string> | null): string {
-  return f?.sellerName || "";
+  return cleanVal(f?.sellerName);
 }
 function docProperty(f?: Record<string, string> | null): string {
-  return f?.propertyAddress || f?.propertyDescription || "";
+  return cleanVal(f?.propertyAddress) || cleanVal(f?.propertyDescription);
 }
 
 /** True if `needle` (e.g. "the Johnsons" / "Johnson") refers to `name`. */
@@ -241,9 +252,25 @@ async function patchClient(
 }
 
 /** Insert or update a client by name; merges role and bumps last_seen_at. */
+const CLIENT_SIDE_ROLES = new Set<ContactRole>(["buyer", "seller", "both"]);
+
+/** "both" only bridges the buyer/seller pair — never professional roles. */
+function rolesMatch(a: ContactRole | null, b: ContactRole | null | undefined): boolean {
+  if (!a || !b) return true;
+  if (a === b) return true;
+  return CLIENT_SIDE_ROLES.has(a) && CLIENT_SIDE_ROLES.has(b);
+}
+
 export async function upsertClientByName(
   accountId: string,
-  input: { name: string; role?: "buyer" | "seller"; secondary?: string | null },
+  input: {
+    name: string;
+    role?: ContactRole;
+    secondary?: string | null;
+    email?: string | null;
+    phone?: string | null;
+    company?: string | null;
+  },
 ): Promise<Client | null> {
   const name = input.name?.trim();
   if (!name) return null;
@@ -254,35 +281,46 @@ export async function upsertClientByName(
 
   // Exact match, else "same party" via token-subset (handles a buyer string
   // growing across calls: "Robert Johnson" -> "Robert Johnson, Mary Johnson").
-  let existing = clients.find((c) => normName(c.full_name) === target);
+  let existing = clients.find((c) => normName(c.full_name) === target && rolesMatch(c.role, input.role));
   if (!existing) {
     existing = clients.find((c) => {
       const ct = tokens(normName(c.full_name));
       if (!ct.length) return false;
-      const roleOk = !c.role || !input.role || c.role === input.role || c.role === "both";
       const subset = ct.every((t) => targetToks.includes(t)) || targetToks.every((t) => ct.includes(t));
-      return roleOk && subset;
+      return rolesMatch(c.role, input.role) && subset;
     });
   }
   if (existing) {
     const patch: Partial<Client> = { last_seen_at: nowIso() };
     // Keep the longer / more complete name.
     if (target.length > normName(existing.full_name).length) patch.full_name = name;
-    if (input.role && existing.role && existing.role !== input.role && existing.role !== "both") {
+    if (
+      input.role &&
+      existing.role &&
+      existing.role !== input.role &&
+      existing.role !== "both" &&
+      CLIENT_SIDE_ROLES.has(input.role) &&
+      CLIENT_SIDE_ROLES.has(existing.role)
+    ) {
       patch.role = "both";
     } else if (input.role && !existing.role) {
       patch.role = input.role;
     }
     if (input.secondary && !existing.secondary_name) patch.secondary_name = input.secondary;
+    // Enrich missing contact details — never overwrite what's already there.
+    if (input.email && !existing.email) patch.email = input.email;
+    if (input.phone && !existing.phone) patch.phone = input.phone;
+    if (input.company && !existing.company) patch.company = input.company;
     await patchClient(accountId, existing.id, patch);
     return { ...existing, ...patch };
   }
   return await createClient_(accountId, {
     full_name: name,
     secondary_name: input.secondary ?? null,
-    email: null,
-    phone: null,
+    email: input.email ?? null,
+    phone: input.phone ?? null,
     role: input.role ?? null,
+    company: input.company ?? null,
     notes: null,
     last_seen_at: nowIso(),
   });
@@ -294,7 +332,7 @@ function surnameStem(name: string): string {
 }
 
 function roleCompatible(a: Client["role"], b: Client["role"]): boolean {
-  return !a || !b || a === b || a === "both" || b === "both";
+  return rolesMatch(a, b);
 }
 
 /**
@@ -326,7 +364,11 @@ async function consolidate(accountId: string, keep: Client): Promise<Client> {
   return { ...keep, ...merged };
 }
 
-/** Auto-learn the parties + property from a document's fields. */
+/**
+ * Auto-learn everyone a document names: the parties (clients), and the
+ * professionals around the deal — the other side's agent, the attorneys,
+ * referral agents — straight into the rolodex with their contact info.
+ */
 export async function rememberParties(accountId: string, doc: DocumentRecord): Promise<void> {
   const f = doc.fields || {};
   const buyer = docBuyer(f);
@@ -346,6 +388,30 @@ export async function rememberParties(accountId: string, doc: DocumentRecord): P
   // Link the document to the primary party if it isn't linked yet.
   if (primary && !doc.client_id) {
     await admin().from("documents").update({ client_id: primary.id }).eq("account_id", accountId).eq("id", doc.id);
+  }
+
+  // Professionals named on the form. Best-effort: requires migration 0009's
+  // widened roles — a constraint error must never break the document flow.
+  const pros: { name: string; role: ContactRole; phone?: string; email?: string; company?: string }[] = [
+    { name: cleanVal(f.sellerAgentName), role: "agent", phone: cleanVal(f.sellerAgentPhone), company: cleanVal(f.sellerAgentFirm) },
+    { name: cleanVal(f.sellerAttorneyName), role: "attorney", phone: cleanVal(f.sellerAttorneyPhone), email: cleanVal(f.sellerAttorneyEmail) },
+    { name: cleanVal(f.buyerAttorneyName), role: "attorney", phone: cleanVal(f.buyerAttorneyPhone), email: cleanVal(f.buyerAttorneyEmail) },
+    { name: cleanVal(f.referringAgent), role: "agent", company: cleanVal(f.referringBrokerage) },
+    { name: cleanVal(f.receivingAgent), role: "agent", company: cleanVal(f.receivingBrokerage) },
+  ];
+  for (const p of pros) {
+    if (!p.name) continue;
+    try {
+      await upsertClientByName(accountId, {
+        name: p.name,
+        role: p.role,
+        phone: p.phone || null,
+        email: p.email || null,
+        company: p.company || null,
+      });
+    } catch {
+      // pre-0009 schema or bad value — skip this contact, keep the rest
+    }
   }
 }
 
@@ -453,7 +519,7 @@ export async function buildMemoryDigest(accountId: string, limit = 12): Promise<
     );
     const property = lastDoc ? docProperty(lastDoc.fields) : "";
     const name = c.secondary_name ? `${c.full_name} & ${c.secondary_name}` : c.full_name;
-    const bits = [c.role, property, c.preferences].filter(Boolean).join(", ");
+    const bits = [c.role, c.company, property, c.preferences].filter(Boolean).join(", ");
     return `- ${name}${bits ? ` — ${bits}` : ""}`;
   });
   return lines.join("\n");

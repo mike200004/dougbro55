@@ -179,7 +179,7 @@ export default async function Home({
 
       <section>
         <h2 className="sectionTitle">
-          Clients · <Link href="/clients" style={{ fontWeight: 700 }}>view all</Link>
+          Contacts · <Link href="/clients" style={{ fontWeight: 700 }}>view all</Link>
         </h2>
         {clients.length > 0 && (
           <div style={{ marginBottom: 16 }}>

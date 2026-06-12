@@ -18,7 +18,7 @@ import { logActivity } from "@/lib/activity";
 import { defer } from "@/lib/defer";
 import { requestSignature } from "@/lib/signing";
 import { getTemplate, isDocType, missingRequired, templateList, userFields } from "@/lib/templates";
-import type { DocumentRecord } from "@/lib/types";
+import type { ContactRole, DocumentRecord } from "@/lib/types";
 import { makeShareToken } from "@/lib/share";
 import { sendSms } from "@/lib/twilio";
 import { sendEmail, emailConfigured } from "@/lib/email";
@@ -54,7 +54,7 @@ export const toolSpecs: ToolSpec[] = [
   {
     name: "recall_client",
     description:
-      "Recall everything you remember about a person by name (even a partial/family name like 'the Johnsons'). Returns their contact info, role, preferences, and past deals/properties. Call this the moment a client or property is mentioned, so you can greet them by name and reuse what you know instead of re-asking.",
+      "Recall everything you remember about a person by name (even a partial/family name like 'the Johnsons'). Works for ANYONE in the agent's world — clients, co-broke agents, attorneys, lenders. Returns their contact info, role, company, preferences, and past deals. Call this the moment a person or property is mentioned, so you can reuse what you know instead of re-asking.",
     parameters: {
       type: "object",
       properties: { name: { type: "string", description: "Person or family name to recall." } },
@@ -77,15 +77,16 @@ export const toolSpecs: ToolSpec[] = [
   {
     name: "create_client",
     description:
-      "Create a new client (a buyer or seller the agent is working with).",
+      "Add a contact to the rolodex: a client (buyer/seller) OR a professional the agent works with — another agent, an attorney, a lender, an inspector.",
     parameters: {
       type: "object",
       properties: {
-        full_name: { type: "string", description: "Primary client name(s)." },
+        full_name: { type: "string", description: "Primary name(s)." },
         secondary_name: { type: "string", description: "Co-buyer/co-seller name, if any." },
         email: { type: "string" },
         phone: { type: "string" },
-        role: { type: "string", enum: ["buyer", "seller", "both"] },
+        role: { type: "string", enum: ["buyer", "seller", "both", "agent", "attorney", "lender", "inspector", "other"] },
+        company: { type: "string", description: "Brokerage / firm, for professional contacts." },
         notes: { type: "string" },
       },
       required: ["full_name"],
@@ -350,6 +351,7 @@ export async function runTool(
         clients: clients.slice(0, 25).map((c) => ({
           name: c.secondary_name ? `${c.full_name} & ${c.secondary_name}` : c.full_name,
           role: c.role,
+          ...(c.company ? { company: c.company } : {}),
         })),
         note: "Details for any of them via recall_client.",
       };
@@ -364,6 +366,7 @@ export async function runTool(
         name: client.full_name,
         secondary_name: client.secondary_name,
         role: client.role,
+        company: client.company,
         email: client.email,
         phone: client.phone,
         preferences: client.preferences,
@@ -388,10 +391,13 @@ export async function runTool(
         secondary_name: (input.secondary_name as string) ?? null,
         email: (input.email as string) ?? null,
         phone: (input.phone as string) ?? null,
-        role: (input.role as "buyer" | "seller" | "both") ?? null,
+        role: (input.role as ContactRole) ?? null,
+        company: (input.company as string) ?? null,
         notes: (input.notes as string) ?? null,
       });
-      return client;
+      return voice
+        ? { ok: true, client_id: client.id, name: client.full_name, role: client.role }
+        : client;
     }
 
     case "create_document": {

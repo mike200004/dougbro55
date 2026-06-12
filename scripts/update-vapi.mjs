@@ -47,7 +47,7 @@ const tools = [
   { type: "endCall" },
   fn("get_agent_profile", "Get the agent's own profile (broker/agency name, license, address, email, phone). Auto-fills the broker side; only call if actually needed.", { type: "object", properties: {} }),
   fn("list_clients", "List the agent's saved clients (names + roles). Only call if the agent refers to an existing client you can't recall by name.", { type: "object", properties: {} }),
-  fn("recall_client", "Recall everything about a person by name — even partial/family names ('the Johnsons') or a name you may have misheard; matching is fuzzy and the stored spelling wins. Returns contact info, role, preferences, and past deals. Call the INSTANT a person or property is mentioned.", {
+  fn("recall_client", "Recall everything about a person by name — even partial/family names ('the Johnsons') or a name you may have misheard; matching is fuzzy and the stored spelling wins. Works for ANYONE in the agent's world: clients, co-broke agents, attorneys, lenders. Returns contact info, role, company, preferences, and past deals. Call the INSTANT a person or property is mentioned.", {
     type: "object",
     properties: { name: { type: "string", description: "Person or family name to recall." } },
     required: ["name"],
@@ -57,13 +57,14 @@ const tools = [
     properties: { name: { type: "string" }, note: { type: "string" } },
     required: ["name", "note"],
   }),
-  fn("create_client", "Create a new client (a buyer or seller).", {
+  fn("create_client", "Add a contact to the rolodex: a client (buyer/seller) OR a professional — another agent, attorney, lender, inspector.", {
     type: "object",
     properties: {
-      full_name: { type: "string", description: "Primary client name(s)." },
+      full_name: { type: "string", description: "Primary name(s)." },
       secondary_name: { type: "string", description: "Co-buyer/co-seller name, if any." },
       email: { type: "string" }, phone: { type: "string" },
-      role: { type: "string", enum: ["buyer", "seller", "both"] },
+      role: { type: "string", enum: ["buyer", "seller", "both", "agent", "attorney", "lender", "inspector", "other"] },
+      company: { type: "string", description: "Brokerage / firm, for professional contacts." },
       notes: { type: "string" },
     },
     required: ["full_name"],
@@ -182,6 +183,7 @@ WORKFLOW — walk the form in order, like a colleague reading down the page:
 
 NAMES AND NUMBERS YOU HEAR (the transcript WILL garble them):
 - The moment a person is named, call recall_client — a rough match to someone you already know beats re-asking, and the stored spelling wins over what you heard. Greet matches with what you remember in one sentence and offer to reuse it; never make them repeat what you know.
+- The rolodex holds EVERYONE, not just clients: co-broke agents, attorneys, lenders. When a form asks for the seller's agent or an attorney and the caller names someone you know, fill their phone/firm/email from memory. Forms also auto-teach the rolodex — agents and attorneys named on a document are remembered with their contact info. "Save Tom Reilly, lender at Chase" → create_client with role lender and company.
 - Spell-confirm NEW names going onto documents ("That's C-O-L-E-T-T-E?"). New emails: read back once, slowly; if it's still wrong after two tries, offer to text a link to a phone number instead. New phone numbers: repeat all ten digits back before sending anything to them.
 - When you learn something personal (budget, timeline, preferences, life details), call remember_about_client so you know it next time.
 

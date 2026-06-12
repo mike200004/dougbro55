@@ -27,13 +27,25 @@ export interface AgentProfile {
   phone: string;
 }
 
+export type ContactRole =
+  | "buyer"
+  | "seller"
+  | "both"
+  | "agent"
+  | "attorney"
+  | "lender"
+  | "inspector"
+  | "other";
+
 export interface Client {
   id: string;
   full_name: string;
   secondary_name: string | null;
   email: string | null;
   phone: string | null;
-  role: "buyer" | "seller" | "both" | null;
+  role: ContactRole | null;
+  /** Brokerage / firm for professional contacts (agents, attorneys, lenders). */
+  company: string | null;
   notes: string | null;
   preferences: string | null;
   last_seen_at: string | null;
