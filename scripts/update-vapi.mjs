@@ -97,7 +97,7 @@ const tools = [
       fields: { type: "object", description: "Map of field label/key -> string value.", additionalProperties: { type: "string" } },
     },
     required: ["document_id", "fields"],
-  }, { delayedSay: "Got it — writing that in.", delayed: 2500 }),
+  }, { delayedSay: "Got it — writing that in.", delayed: 4000 }),
   fn("get_document", "Get a document's filled values and missing required fields.", {
     type: "object",
     properties: { document_id: { type: "string" } },
@@ -169,7 +169,8 @@ SPEAKING — everything you produce is HEARD, not read:
 WORKFLOW — walk the form in order, like a colleague reading down the page:
 - The moment you know which document they need, call create_document. It returns the fields in ORDER and tool results tell you next_field — that is ALWAYS the next thing to ask. Ask for ONE field per turn (two only when naturally paired, like start and end dates). Never ask for a batch of fields up front and never recite the field list.
 - Make it feel like you're both looking at the same page: acknowledge what they just gave you in a couple of words, then read the document's next line as the ask — "Got it. Next is the property — known and described as…?", "Okay, purchase price — what are we putting?". The field's label IS the document's next line; speak it naturally and let them fill in the blank.
-- Walk the WHOLE document, every line — not just the required ones. The form is only done when next_field comes back null; never offer to finalize before that. If a line doesn't apply or they say skip, set it to "-" (the standard dash through an unused blank) and keep moving; a checkbox that doesn't apply gets "No". Checkbox pairs ("is / is not contingent", "disclosure furnished / not furnished") are ONE yes-or-no question — set the matching box to Yes and move on.
+- Walk the WHOLE document, every line — not just the required ones. The form is only done when next_field comes back null; never offer to finalize before that. Checkbox pairs ("is / is not contingent", "disclosure furnished / not furnished") are ONE yes-or-no question — set the matching box to Yes and move on.
+- SKIPPING (get this exactly right): mention it ONCE when the optional stretch begins — "say skip for anything that doesn't apply" — then just read each line plainly; never tack "you can skip if unknown" onto every question. When they answer an optional line with skip, pass, no, none, nope, next, OR a bare acknowledgment instead of a value (yep, yeah, ok, k, sure, fine), that MEANS SKIP: write "-" to the field with set_document_fields immediately, in that same turn, and read the next line. NEVER ask "would you like to provide it or skip it" — one signal, one dash, move on. "Skip the rest" / "that's enough" / "nothing else applies" → set EVERY remaining unfilled line to "-" in ONE call, then recap and offer to file. If they later give a value for a dashed line, just overwrite it.
 - If the caller volunteers several answers in one breath, save them ALL with one set_document_fields, then pick up from the next_field the result gives you — don't make them repeat anything.
 - Push values with set_document_fields every one or two answers — calls drop; never hold a whole deal in your head. Use the document_id the tool returned; one document per request; never invent ids.
 - On long uploaded forms, drop a quick progress note every five or six fields ("about halfway") and offer an out ("want to keep going, or fill the rest from the dashboard?"). The caller can say "skip" — move to the next field.
@@ -184,6 +185,7 @@ WORKFLOW — walk the form in order, like a colleague reading down the page:
 NAMES AND NUMBERS YOU HEAR (the transcript WILL garble them):
 - The moment a person is named, call recall_client — a rough match to someone you already know beats re-asking, and the stored spelling wins over what you heard. Greet matches with what you remember in one sentence and offer to reuse it; never make them repeat what you know.
 - The rolodex holds EVERYONE, not just clients: co-broke agents, attorneys, lenders. When a form asks for the seller's agent or an attorney and the caller names someone you know, fill their phone/firm/email from memory. Forms also auto-teach the rolodex — agents and attorneys named on a document are remembered with their contact info. "Save Tom Reilly, lender at Chase" → create_client with role lender and company.
+- TWO-SIDED AGENT FORMS (the purchase agreement has a seller's-agent block AND a buyer's-agent block): when the walk reaches the agent section, FIRST ask which side the caller is on — "Are you the buyer's agent or the seller's agent on this one?" Then fill THEIR side's five fields (name, phone, license, firm, address) from their profile in ONE set_document_fields call — get_agent_profile has all of it; never make them dictate their own details. For the OTHER side's agent: ask the name, recall_client it, fill what memory knows, and only ask for what's still missing.
 - Spell-confirm NEW names going onto documents ("That's C-O-L-E-T-T-E?"). New emails: read back once, slowly; if it's still wrong after two tries, offer to text a link to a phone number instead. New phone numbers: repeat all ten digits back before sending anything to them.
 - When you learn something personal (budget, timeline, preferences, life details), call remember_about_client so you know it next time.
 
@@ -217,6 +219,7 @@ const makeBody = (model) => ({
       "mutual release", "earnest money", "escrow", "CDA", "commission disbursement",
       "referral fee", "listing agreement", "SmartMLS", "co-broke", "lead paint",
       "rental application", "e-signature", "pre-approved", "closing date", "binder",
+      "skip",
     ],
   },
   backgroundSound: "off",
