@@ -34,7 +34,7 @@ import { sendSms } from "@/lib/twilio";
 import { uploadTemplateFile } from "@/lib/storage";
 import { detectAcroFields } from "@/lib/pdf/fill";
 import { getTemplate, missingRequired } from "@/lib/templates";
-import type { AgentProfile, DocType } from "@/lib/types";
+import type { AgentProfile, ContactRole, DocType } from "@/lib/types";
 
 const SEND_SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://pheme.deals";
 
@@ -288,7 +288,8 @@ export async function createClientAction(formData: FormData) {
     secondary_name: (formData.get("secondary_name") as string) || null,
     email: (formData.get("email") as string) || null,
     phone: rawPhone ? normalizePhone(rawPhone) || rawPhone : null,
-    role: (formData.get("role") as "buyer" | "seller" | "both") || null,
+    role: (formData.get("role") as ContactRole) || null,
+    company: (formData.get("company") as string) || null,
     notes: (formData.get("notes") as string) || null,
   });
   revalidatePath("/clients");
@@ -514,7 +515,8 @@ export async function updateClientAction(clientId: string, formData: FormData): 
     secondary_name: (formData.get("secondary_name") as string) || null,
     email: (formData.get("email") as string) || null,
     phone: rawPhone ? normalizePhone(rawPhone) || rawPhone : null,
-    role: ((formData.get("role") as string) || null) as "buyer" | "seller" | "both" | null,
+    role: ((formData.get("role") as string) || null) as ContactRole | null,
+    company: (formData.get("company") as string) || null,
     preferences: (formData.get("preferences") as string) || null,
     notes: (formData.get("notes") as string) || null,
   });

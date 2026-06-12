@@ -20,7 +20,7 @@ export default function AddClient() {
   if (!open) {
     return (
       <button className="btn" onClick={() => setOpen(true)}>
-        + Add client
+        + Add contact
       </button>
     );
   }
@@ -33,7 +33,7 @@ export default function AddClient() {
           await createClientAction(fd);
           setOpen(false);
         } catch {
-          setErr("Couldn't save the client — please try again.");
+          setErr("Couldn't save the contact — please try again.");
         }
       }}
       className="card"
@@ -61,8 +61,17 @@ export default function AddClient() {
             <option value="">—</option>
             <option value="buyer">Buyer</option>
             <option value="seller">Seller</option>
-            <option value="both">Both</option>
+            <option value="both">Buyer & seller</option>
+            <option value="agent">Agent (co-broke)</option>
+            <option value="attorney">Attorney</option>
+            <option value="lender">Lender</option>
+            <option value="inspector">Inspector</option>
+            <option value="other">Other</option>
           </select>
+        </div>
+        <div className="field">
+          <label className="label">Company / firm</label>
+          <input className="input" name="company" placeholder="For agents, attorneys, lenders…" />
         </div>
       </div>
       <div className="field">

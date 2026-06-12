@@ -25,7 +25,7 @@ export default async function ClientDetailPage({
   return (
     <div className="stack">
       <div>
-        <Link href="/clients" className="backlink">← Clients</Link>
+        <Link href="/clients" className="backlink">← Contacts</Link>
         <h1 className="pageTitle" style={{ marginTop: 10 }}>
           {client.secondary_name ? `${client.full_name} & ${client.secondary_name}` : client.full_name}
         </h1>
@@ -61,8 +61,17 @@ export default async function ClientDetailPage({
                 <option value="">—</option>
                 <option value="buyer">Buyer</option>
                 <option value="seller">Seller</option>
-                <option value="both">Both</option>
+                <option value="both">Buyer & seller</option>
+                <option value="agent">Agent (co-broke)</option>
+                <option value="attorney">Attorney</option>
+                <option value="lender">Lender</option>
+                <option value="inspector">Inspector</option>
+                <option value="other">Other</option>
               </select>
+            </div>
+            <div className="field">
+              <label className="label">Company / firm</label>
+              <input className="input" name="company" defaultValue={client.company ?? ""} placeholder="Brokerage, law firm…" />
             </div>
           </div>
           <div className="field">

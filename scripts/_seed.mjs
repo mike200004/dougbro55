@@ -1,0 +1,11 @@
+import { createClient } from "@supabase/supabase-js";
+import { readFileSync } from "fs";
+const env = Object.fromEntries(readFileSync(".env.local","utf8").split("\n").filter(l=>l.includes("=")&&!l.trim().startsWith("#")).map(l=>{const i=l.indexOf("=");return [l.slice(0,i).trim(),l.slice(i+1).trim()];}));
+const sb = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY,{auth:{persistSession:false}});
+const email="voicetest@dougbro55.test";
+const { data:list } = await sb.auth.admin.listUsers();
+for (const u of list.users) if (u.email===email) await sb.auth.admin.deleteUser(u.id);
+const o=await sb.auth.admin.createUser({email,password:"password123",email_confirm:true}); const uid=o.data.user.id;
+await sb.from("profiles").insert({id:uid,email,phone:"+12035550177",agent_name:"Jordan Avery",broker_agency_name:"Avery & Co. Realty"});
+await sb.from("account_members").insert({id:uid,account_id:uid,role:"owner",phone:"+12035550177",name:"Jordan Avery",email,status:"active"});
+console.log(uid);
