@@ -3,8 +3,9 @@ import { getAccountByPhone, buildMemoryDigest, latestDraft, getProfile, listDocu
 import { missingRequired, userFields, getTemplate, isDocType } from "@/lib/templates";
 import type { DocType } from "@/lib/types";
 import { normalizePhone } from "@/lib/phone";
+import { verifyVapiSecret } from "@/lib/webhook-auth";
 import { sendSms } from "@/lib/twilio";
-import { sendEmail, emailConfigured } from "@/lib/email";
+import { sendEmail, emailConfigured, escapeHtml } from "@/lib/email";
 import { makeShareToken } from "@/lib/share";
 import { logActivity } from "@/lib/activity";
 import { defer } from "@/lib/defer";
@@ -26,8 +27,7 @@ const ASSISTANT_ID = process.env.VAPI_ASSISTANT_ID || "8e46aebd-e589-4d6f-a614-7
  * failure we return the base assistant with minimal context.
  */
 export async function POST(req: NextRequest) {
-  const secret = process.env.VAPI_SERVER_SECRET;
-  if (secret && req.headers.get("x-vapi-secret") !== secret) {
+  if (!verifyVapiSecret(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -75,9 +75,9 @@ export async function POST(req: NextRequest) {
           await sendEmail({
             to: profile.email,
             subject: "Your Pheme call recap",
-            html: `<p>${recap}</p>${
+            html: `<p>${escapeHtml(recap)}</p>${
               recent && link
-                ? `<p>Document from this call: <a href="${link}">${recent.title || "view & download"}</a></p>`
+                ? `<p>Document from this call: <a href="${escapeHtml(link)}">${escapeHtml(recent.title || "view & download")}</a></p>`
                 : ""
             }<p>— Pheme</p>`,
           });

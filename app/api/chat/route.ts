@@ -3,6 +3,7 @@ import { hasAiKey } from "@/lib/ai";
 import { runConversation, Turn } from "@/lib/conversation";
 import { getAccount } from "@/lib/auth";
 import { getProfile } from "@/lib/db";
+import { rateLimit } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -15,6 +16,15 @@ export async function POST(req: NextRequest) {
   const account = await getAccount();
   if (!account) {
     return NextResponse.json({ error: "Please sign in." }, { status: 401 });
+  }
+
+  // Cost guard: each turn calls the LLM. Cap per-account turns/min so a runaway
+  // client (or a compromised session) can't burn the OpenAI key.
+  if (!rateLimit(`chat:${account.accountId}`, 30, 60_000)) {
+    return NextResponse.json(
+      { error: "You're going a little fast — give me a second and try again." },
+      { status: 429 },
+    );
   }
 
   if (!hasAiKey()) {

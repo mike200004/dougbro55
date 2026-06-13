@@ -38,6 +38,8 @@ import type { AgentProfile, ContactRole, DocType } from "@/lib/types";
 
 const SEND_SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://pheme.deals";
 
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024; // 20 MB — matches the storage bucket limit
+
 const SITE_URL =
   process.env.NEXT_PUBLIC_SITE_URL || "https://pheme.deals";
 
@@ -335,6 +337,8 @@ export async function uploadFormAction(
   const file = formData.get("file") as File | null;
   if (!file || file.size === 0) return { ok: false, error: "Choose a PDF to upload." };
   if (file.type && !/pdf/i.test(file.type)) return { ok: false, error: "Please upload a PDF." };
+  // Bound memory/CPU before parsing — don't hand an oversized PDF to pdf-lib.
+  if (file.size > MAX_UPLOAD_BYTES) return { ok: false, error: "That PDF is too large (max 20 MB)." };
 
   const bytes = Buffer.from(await file.arrayBuffer());
   let acroFields;
@@ -371,6 +375,10 @@ export async function saveOverlayTemplateAction(input: {
   const { accountId, userId } = await requireAccount();
   if (!input.pdfBase64) return { ok: false, error: "Missing the PDF." };
   if (!input.fields?.length) return { ok: false, error: "Add at least one field." };
+  // base64 inflates ~33%; cap the decoded size to match the upload limit.
+  if (input.pdfBase64.length > MAX_UPLOAD_BYTES * 1.4) {
+    return { ok: false, error: "That PDF is too large (max 20 MB)." };
+  }
 
   const bytes = Buffer.from(input.pdfBase64, "base64");
   const storagePath = `${accountId}/${randomUUID()}.pdf`;

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { runTool } from "@/lib/tools";
 import { getAccountByPhone } from "@/lib/db";
 import { normalizePhone } from "@/lib/phone";
+import { verifyVapiSecret } from "@/lib/webhook-auth";
 import type { ResolvedActor } from "@/lib/db";
 
 export const runtime = "nodejs";
@@ -88,8 +89,7 @@ const READ_ONLY = new Set([
 ]);
 
 export async function POST(req: NextRequest) {
-  const secret = process.env.VAPI_SERVER_SECRET;
-  if (secret && req.headers.get("x-vapi-secret") !== secret) {
+  if (!verifyVapiSecret(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

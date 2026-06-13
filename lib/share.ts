@@ -6,11 +6,17 @@ import crypto from "crypto";
  * DB column/migration is needed — possession of the token grants read access.
  */
 function secret(): string {
-  return (
-    process.env.SHARE_SECRET ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    "pheme-dev-secret"
-  );
+  // Prefer a dedicated SHARE_SECRET; fall back to the service-role key so
+  // existing links keep validating until a dedicated secret is rolled out.
+  const s = process.env.SHARE_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (s) return s;
+  // No signing key at all. In production, fail closed — never sign/verify with
+  // a guessable literal (that would let anyone forge share/sign links). Only
+  // local dev gets a fixed fallback.
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("SHARE_SECRET or SUPABASE_SERVICE_ROLE_KEY must be set to sign document links.");
+  }
+  return "pheme-dev-secret-local-only";
 }
 
 function sign(docId: string): string {

@@ -21,7 +21,7 @@ import { getTemplate, isDocType, missingRequired, templateList, userFields } fro
 import type { ContactRole, DocumentRecord } from "@/lib/types";
 import { makeShareToken } from "@/lib/share";
 import { sendSms } from "@/lib/twilio";
-import { sendEmail, emailConfigured } from "@/lib/email";
+import { sendEmail, emailConfigured, escapeHtml } from "@/lib/email";
 import { renderDocument } from "@/lib/pdf/fill";
 import { normalizePhone } from "@/lib/phone";
 import type { DocType } from "@/lib/types";
@@ -401,6 +401,15 @@ export async function runTool(
     }
 
     case "create_document": {
+      // Validate any client_id belongs to THIS account before linking it, so a
+      // hallucinated/foreign id can't create a dangling cross-account reference.
+      let linkedClient = null;
+      if (input.client_id) {
+        linkedClient = await getClient(acc, String(input.client_id));
+        if (!linkedClient) return { error: "That client isn't on your account." };
+      }
+      const clientId = linkedClient?.id ?? null;
+
       // Copy of an uploaded form template?
       const templateRef = (input.template_id as string) || (input.template_name as string);
       if (templateRef) {
@@ -414,7 +423,7 @@ export async function runTool(
           type: "uploaded",
           template_id: tpl.id,
           title: (input.title as string) || `${tpl.name} (new)`,
-          client_id: (input.client_id as string) ?? null,
+          client_id: clientId,
           created_by: ctx.actorId ?? null,
         });
         // Build the schema from the template already in hand — no re-fetch.
@@ -445,13 +454,12 @@ export async function runTool(
       const tpl = getTemplate(type);
       let title = (input.title as string) || "";
       if (!title) {
-        const client = input.client_id ? await getClient(acc, String(input.client_id)) : null;
-        title = client ? `${tpl.shortName} — ${client.full_name}` : `${tpl.shortName} (new)`;
+        title = linkedClient ? `${tpl.shortName} — ${linkedClient.full_name}` : `${tpl.shortName} (new)`;
       }
       const doc = await createDocument(acc, {
         type,
         title,
-        client_id: (input.client_id as string) ?? null,
+        client_id: clientId,
         created_by: ctx.actorId ?? null,
       });
       if (voice) {
@@ -620,7 +628,7 @@ export async function runTool(
           sendEmail({
             to: selfEmail,
             subject: docName,
-            html: `<p>Here’s your ${docName}: <a href="${link}">view &amp; download the PDF</a>.</p><p>— Pheme</p>`,
+            html: `<p>Here’s your ${escapeHtml(docName)}: <a href="${escapeHtml(link)}">view &amp; download the PDF</a>.</p><p>— Pheme</p>`,
           }),
         );
       }
@@ -661,7 +669,7 @@ export async function runTool(
       const sent = await sendEmail({
         to,
         subject: `${docName}${who ? ` for ${who}` : ""}`,
-        html: `<p>${who ? `${who}, here` : "Here"}'s your ${docName}, attached as a PDF.</p><p>You can also <a href="${link}">view it online</a>.</p><p>— Pheme</p>`,
+        html: `<p>${who ? `${escapeHtml(who)}, here` : "Here"}'s your ${escapeHtml(docName)}, attached as a PDF.</p><p>You can also <a href="${escapeHtml(link)}">view it online</a>.</p><p>— Pheme</p>`,
         attachment: { filename: `${filename}.pdf`, contentBase64: Buffer.from(bytes).toString("base64") },
       });
       if (!sent.ok) {
