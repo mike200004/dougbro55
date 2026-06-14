@@ -1,5 +1,7 @@
 import Link from "next/link";
 import {
+  countClients,
+  countDocuments,
   getProfile,
   listClients,
   listDocuments,
@@ -36,24 +38,27 @@ export default async function Home({
   if (!account) return <Landing />;
   const { accountId } = account;
   const uploaded = (await searchParams)?.uploaded;
-  const [profile, clients, documents, names, forms, members, sigs, activity] =
+
+  const monthStart = new Date();
+  monthStart.setDate(1);
+  monthStart.setHours(0, 0, 0, 0);
+
+  // Render only what the dashboard shows (bounded lists); stat tiles use count
+  // queries so the page doesn't load a tenant's whole history on every login.
+  const [profile, clients, documents, names, forms, members, sigs, activity, clientCount, filedThisMonth] =
     await Promise.all([
       getProfile(accountId),
-      listClients(accountId),
-      listDocuments(accountId),
+      listClients(accountId, { limit: 6 }),
+      listDocuments(accountId, { limit: 8 }),
       memberNames(accountId),
       listFormTemplates(accountId),
       listMembers(accountId),
       listSignatureRequests(accountId),
       listActivity(accountId, 8),
+      countClients(accountId),
+      countDocuments(accountId, { status: "completed", archived: false, updatedSince: monthStart.toISOString() }),
     ]);
 
-  const monthStart = new Date();
-  monthStart.setDate(1);
-  monthStart.setHours(0, 0, 0, 0);
-  const filedThisMonth = documents.filter(
-    (d) => d.status === "completed" && new Date(d.updated_at) >= monthStart,
-  ).length;
   const awaitingSig = sigs.filter((s) => s.status === "pending").length;
 
   return (
@@ -77,7 +82,7 @@ export default async function Home({
       <section className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
         {[
           { n: filedThisMonth, label: "Filed this month" },
-          { n: clients.length, label: "Clients remembered" },
+          { n: clientCount, label: "Clients remembered" },
           { n: forms.length, label: "Forms uploaded" },
           { n: awaitingSig, label: "Awaiting signature" },
         ].map((s) => (

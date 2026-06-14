@@ -3,6 +3,7 @@ import type {
   AgentProfile,
   Client,
   ContactRole,
+  DocStatus,
   DocumentRecord,
   DocumentType,
   DocType,
@@ -151,12 +152,16 @@ export async function memberNames(accountId: string): Promise<Record<string, str
 // Clients
 // ---------------------------------------------------------------------------
 
-export async function listClients(accountId: string): Promise<Client[]> {
-  const { data } = await admin()
-    .from("clients")
-    .select("*")
-    .eq("account_id", accountId)
-    .order("created_at", { ascending: false });
+export async function listClients(
+  accountId: string,
+  opts?: { limit?: number; byRecency?: boolean },
+): Promise<Client[]> {
+  let q = admin().from("clients").select("*").eq("account_id", accountId);
+  q = opts?.byRecency
+    ? q.order("last_seen_at", { ascending: false, nullsFirst: false }).order("created_at", { ascending: false })
+    : q.order("created_at", { ascending: false });
+  if (opts?.limit) q = q.limit(opts.limit);
+  const { data } = await q;
   return (data as Client[]) ?? [];
 }
 
@@ -271,10 +276,13 @@ export async function upsertClientByName(
     phone?: string | null;
     company?: string | null;
   },
+  // Callers that upsert several parties at once (rememberParties) pass the
+  // client list once instead of re-fetching it per party.
+  preloaded?: Client[],
 ): Promise<Client | null> {
   const name = input.name?.trim();
   if (!name) return null;
-  const clients = await listClients(accountId);
+  const clients = preloaded ?? (await listClients(accountId));
   const target = normName(name);
   const tokens = (s: string) => s.split(/[\s,]+/).filter(Boolean);
   const targetToks = tokens(target);
@@ -373,13 +381,18 @@ export async function rememberParties(accountId: string, doc: DocumentRecord): P
   const f = doc.fields || {};
   const buyer = docBuyer(f);
   const seller = docSeller(f);
+  // Load the client book ONCE and reuse it across every party upsert below
+  // (was re-fetching the whole table ~9× per document — the hottest write
+  // path, hit on every set_document_fields). consolidate() still reads fresh
+  // since it deletes and needs current truth.
+  const clients = await listClients(accountId);
   let primary: Client | null = null;
   if (buyer) {
-    const b = await upsertClientByName(accountId, { name: buyer, role: "buyer" });
+    const b = await upsertClientByName(accountId, { name: buyer, role: "buyer" }, clients);
     if (b) primary = await consolidate(accountId, b);
   }
   if (seller) {
-    const s = await upsertClientByName(accountId, { name: seller, role: "seller" });
+    const s = await upsertClientByName(accountId, { name: seller, role: "seller" }, clients);
     if (s) {
       const c = await consolidate(accountId, s);
       if (!primary) primary = c;
@@ -408,7 +421,7 @@ export async function rememberParties(accountId: string, doc: DocumentRecord): P
         phone: p.phone || null,
         email: p.email || null,
         company: p.company || null,
-      });
+      }, clients);
     } catch {
       // pre-0009 schema or bad value — skip this contact, keep the rest
     }
@@ -432,9 +445,11 @@ export interface Dossier {
 /** Everything we remember about a person, found by fuzzy name. */
 export async function getClientDossier(accountId: string, name: string): Promise<Dossier | null> {
   // The docs fetch doesn't depend on which client matches — run both at once.
+  // Docs are bounded to a recent window so a power tenant's full history isn't
+  // loaded on the voice recall path; deal history shows recent deals.
   const [clients, docs] = await Promise.all([
     listClients(accountId),
-    listDocuments(accountId),
+    listDocuments(accountId, { limit: 200 }),
   ]);
   const matches = clients.filter(
     (c) => nameMatches(c.full_name, name) || nameMatches(c.secondary_name, name),
@@ -502,15 +517,15 @@ export async function rememberAboutClient(
  * queries go out in parallel.
  */
 export async function buildMemoryDigest(accountId: string, limit = 12): Promise<string> {
+  // Hot path: runs on every inbound call pickup under a tight timeout. Pull
+  // only the N most-recently-seen clients and a recent window of docs (for
+  // property enrichment) instead of the tenant's entire history.
   const [clients, docs] = await Promise.all([
-    listClients(accountId),
-    listDocuments(accountId),
+    listClients(accountId, { limit, byRecency: true }),
+    listDocuments(accountId, { limit: 50 }),
   ]);
   if (!clients.length) return "";
-  clients.sort((a, b) =>
-    (b.last_seen_at ?? b.created_at).localeCompare(a.last_seen_at ?? a.created_at),
-  );
-  const lines = clients.slice(0, limit).map((c) => {
+  const lines = clients.map((c) => {
     const lastDoc = docs.find(
       (d) =>
         d.client_id === c.id ||
@@ -531,7 +546,7 @@ export async function buildMemoryDigest(accountId: string, limit = 12): Promise<
 
 export async function listDocuments(
   accountId: string,
-  opts?: { includeArchived?: boolean },
+  opts?: { includeArchived?: boolean; limit?: number },
 ): Promise<DocumentRecord[]> {
   let q = admin()
     .from("documents")
@@ -539,8 +554,34 @@ export async function listDocuments(
     .eq("account_id", accountId)
     .order("updated_at", { ascending: false });
   if (!opts?.includeArchived) q = q.eq("archived", false);
+  if (opts?.limit) q = q.limit(opts.limit);
   const { data } = await q;
   return (data as DocumentRecord[]) ?? [];
+}
+
+/** Count documents matching a status (for dashboard stats — no row egress). */
+export async function countDocuments(
+  accountId: string,
+  opts?: { status?: DocStatus; archived?: boolean; updatedSince?: string },
+): Promise<number> {
+  let q = admin()
+    .from("documents")
+    .select("id", { count: "exact", head: true })
+    .eq("account_id", accountId);
+  if (opts?.status) q = q.eq("status", opts.status);
+  if (opts?.archived !== undefined) q = q.eq("archived", opts.archived);
+  if (opts?.updatedSince) q = q.gte("updated_at", opts.updatedSince);
+  const { count } = await q;
+  return count ?? 0;
+}
+
+/** Count an account's clients (dashboard stat). */
+export async function countClients(accountId: string): Promise<number> {
+  const { count } = await admin()
+    .from("clients")
+    .select("id", { count: "exact", head: true })
+    .eq("account_id", accountId);
+  return count ?? 0;
 }
 
 export async function setDocumentArchived(
