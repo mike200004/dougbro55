@@ -13,6 +13,9 @@ export async function GET(
   if (!account) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  if (account.status !== "active") {
+    return NextResponse.json({ error: "Account pending approval" }, { status: 403 });
+  }
 
   const { id } = await params;
   const doc = await getDocument(account.accountId, id);

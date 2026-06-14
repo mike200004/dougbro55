@@ -2,11 +2,11 @@
 
 import { useState } from "react";
 import { createAccountAction } from "@/app/actions";
-import { createSupabaseBrowser } from "@/lib/supabase/client";
 
 export default function SignupForm() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -33,14 +33,22 @@ export default function SignupForm() {
       return;
     }
 
-    const supabase = createSupabaseBrowser();
-    const { error: signInErr } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-    if (signInErr) {
-      setError("Account created, but sign-in failed: " + signInErr.message);
-      setBusy(false);
-      return;
-    }
-    window.location.assign("/");
+    // Private beta: the account is created pending approval — don't sign in,
+    // show the confirmation instead.
+    setPending(true);
+    setBusy(false);
+  }
+
+  if (pending) {
+    return (
+      <div className="authCard" style={{ textAlign: "center" }}>
+        <h2 className="cardTitle" style={{ marginTop: 0 }}>You’re on the list ✓</h2>
+        <p className="cardBody">
+          Pheme is in private beta. Your account is <strong>pending approval</strong> — we
+          review new accounts by hand and you’ll get an email the moment you’re in.
+        </p>
+      </div>
+    );
   }
 
   return (

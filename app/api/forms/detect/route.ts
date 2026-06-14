@@ -29,6 +29,7 @@ function slug(s: string, i: number): string {
 export async function POST(req: NextRequest) {
   const account = await getAccount();
   if (!account) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (account.status !== "active") return NextResponse.json({ error: "Account pending approval" }, { status: 403 });
 
   let body: { pages?: PageInput[] };
   try {

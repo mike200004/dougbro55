@@ -113,7 +113,9 @@ export async function createAccountAction(input: {
       name: input.agent_name ?? "",
       phone,
       email,
-      status: "active",
+      // Private beta: new accounts start pending; an admin flips status to
+      // 'active' in Supabase to grant access.
+      status: "pending",
     });
   } catch (e) {
     await sb.auth.admin.deleteUser(uid);

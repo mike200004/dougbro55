@@ -81,29 +81,35 @@ export interface ResolvedActor {
   memberId: string;
   name: string;
   role: "owner" | "assistant";
+  status: "active" | "invited" | "pending";
 }
 
 /** Resolve the account + actor for a logged-in user. */
 export async function getMember(userId: string): Promise<ResolvedActor | null> {
   const { data } = await admin()
     .from("account_members")
-    .select("account_id, name, role")
+    .select("account_id, name, role, status")
     .eq("id", userId)
     .maybeSingle();
   if (!data) return null;
-  return { accountId: data.account_id, memberId: userId, name: data.name, role: data.role };
+  return { accountId: data.account_id, memberId: userId, name: data.name, role: data.role, status: data.status };
 }
 
-/** Resolve the account + actor from a caller's phone (E.164) — owner or assistant. */
+/**
+ * Resolve the account + actor from a caller's phone (E.164) — owner or
+ * assistant. Only ACTIVE members route here: a pending (beta-unapproved) or
+ * not-yet-accepted invited member can't act over voice/SMS.
+ */
 export async function getAccountByPhone(phone: string): Promise<ResolvedActor | null> {
   if (!phone) return null;
   const { data } = await admin()
     .from("account_members")
-    .select("id, account_id, name, role")
+    .select("id, account_id, name, role, status")
     .eq("phone", phone)
+    .eq("status", "active")
     .maybeSingle();
   if (!data) return null;
-  return { accountId: data.account_id, memberId: data.id, name: data.name, role: data.role };
+  return { accountId: data.account_id, memberId: data.id, name: data.name, role: data.role, status: data.status };
 }
 
 export async function listMembers(accountId: string): Promise<Member[]> {
@@ -122,7 +128,7 @@ export async function insertMember(m: {
   name: string;
   phone: string | null;
   email: string | null;
-  status: "active" | "invited";
+  status: "active" | "invited" | "pending";
 }): Promise<void> {
   const { error } = await admin().from("account_members").insert(m);
   if (error) throw new Error(error.message);

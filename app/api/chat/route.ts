@@ -17,6 +17,9 @@ export async function POST(req: NextRequest) {
   if (!account) {
     return NextResponse.json({ error: "Please sign in." }, { status: 401 });
   }
+  if (account.status !== "active") {
+    return NextResponse.json({ error: "Your account is pending approval." }, { status: 403 });
+  }
 
   // Cost guard: each turn calls the LLM. Cap per-account turns/min so a runaway
   // client (or a compromised session) can't burn the OpenAI key.

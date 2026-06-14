@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import {
   countClients,
   countDocuments,
@@ -36,6 +37,7 @@ export default async function Home({
 }) {
   const account = await getAccount();
   if (!account) return <Landing />;
+  if (account.status !== "active") redirect("/pending");
   const { accountId } = account;
   const uploaded = (await searchParams)?.uploaded;
 
