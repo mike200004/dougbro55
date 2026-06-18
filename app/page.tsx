@@ -61,7 +61,12 @@ export default async function Home({
       countDocuments(accountId, { status: "completed", archived: false, updatedSince: monthStart.toISOString() }),
     ]);
 
-  const awaitingSig = sigs.filter((s) => s.status === "pending").length;
+  // Count distinct documents awaiting signature, not raw request rows — a
+  // document can have several pending requests, and the Documents list shows
+  // one "Awaiting signature" badge per document, so this keeps the two in sync.
+  const awaitingSig = new Set(
+    sigs.filter((s) => s.status === "pending").map((s) => s.document_id),
+  ).size;
 
   return (
     <div className="stack">
