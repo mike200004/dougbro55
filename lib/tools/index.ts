@@ -372,7 +372,9 @@ export async function runTool(
         preferences: client.preferences,
         notes: client.notes,
         co_parties: coParties,
-        deals: (voice ? deals.slice(0, 5) : deals).map((d) => ({ type: d.type, property: d.property, status: d.status, date: d.date })),
+        // Cap deal history so a long-time client with many documents can't blow
+        // up the model context (voice is tightest; web/SMS still bounded).
+        deals: deals.slice(0, voice ? 5 : 25).map((d) => ({ type: d.type, property: d.property, status: d.status, date: d.date })),
       };
     }
 
