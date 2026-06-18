@@ -159,7 +159,7 @@ async function buildOverrides(
 
   const [digest, draft, profile, forms] = await Promise.all([
     buildMemoryDigest(actor.accountId).catch(() => ""),
-    latestDraft(actor.accountId).catch(() => null),
+    latestDraft(actor.accountId, { createdBy: actor.memberId }).catch(() => null),
     getProfile(actor.accountId).catch(() => null),
     listFormTemplates(actor.accountId).catch(() => []),
   ]);

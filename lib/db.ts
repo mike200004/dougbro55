@@ -236,16 +236,19 @@ function cleanVal(v: string | undefined | null): string {
 }
 
 // Field keys differ by template: most use buyerName/sellerName/propertyAddress;
-// buyer_rep uses buyerNames/propertyDescription (no seller); the rental
-// application's applicant is the buyer-side party.
+// the rental application's applicant and the referral agreement's client are
+// the buyer-side party; the referral agreement describes the property as an
+// "area" rather than a street address. Keep these in sync with the keys in
+// lib/templates/generated.ts — a name that doesn't match here is never learned
+// or recalled.
 function docBuyer(f?: Record<string, string> | null): string {
-  return cleanVal(f?.buyerName) || cleanVal(f?.buyerNames) || cleanVal(f?.applicantName);
+  return cleanVal(f?.buyerName) || cleanVal(f?.applicantName) || cleanVal(f?.clientName);
 }
 function docSeller(f?: Record<string, string> | null): string {
   return cleanVal(f?.sellerName);
 }
 function docProperty(f?: Record<string, string> | null): string {
-  return cleanVal(f?.propertyAddress) || cleanVal(f?.propertyDescription);
+  return cleanVal(f?.propertyAddress) || cleanVal(f?.propertyOrArea);
 }
 
 /** True if `needle` (e.g. "the Johnsons" / "Johnson") refers to `name`. */
@@ -350,21 +353,48 @@ function surnameStem(name: string): string {
   return (toks[toks.length - 1] || "").replace(/s$/, "");
 }
 
+function firstName(name: string): string {
+  return normName(name).split(/[\s,]+/).filter(Boolean)[0] || "";
+}
+
+/**
+ * With surnames already matched, decide whether the first names refer to the
+ * same person: identical, or one a prefix of the other (Tom/Thomas, Liz/Liza).
+ */
+function firstNameCompatible(a: string, b: string): boolean {
+  const af = firstName(a);
+  const bf = firstName(b);
+  if (!af || !bf) return false;
+  return af === bf || af.startsWith(bf) || bf.startsWith(af);
+}
+
 function roleCompatible(a: Client["role"], b: Client["role"]): boolean {
   return rolesMatch(a, b);
 }
 
 /**
- * Fold same-surname, same-role duplicates into `keep` (e.g. a preferences-only
- * record the assistant created via remember_about_client before the party was
- * on a document). Merges preferences/notes and deletes the extras.
+ * Fold a near-duplicate into `keep` — specifically a skeletal "stub" the
+ * assistant created via remember_about_client (or an early mention) BEFORE the
+ * party was on a document. Merges preferences/notes and deletes the extra row.
+ *
+ * The merge HARD-DELETES the folded row, so it is deliberately conservative:
+ * it only merges (a) an exact same-name, role-compatible record, or (b) a stub
+ * with no contact identity of its own whose first+last name plausibly match.
+ * Two distinct people who merely share a surname (two "Smith" buyers) are never
+ * merged — that would be irreversible data loss.
  */
 async function consolidate(accountId: string, keep: Client): Promise<Client> {
   const stem = surnameStem(keep.full_name);
   if (!stem) return keep;
-  const dups = (await listClients(accountId)).filter(
-    (c) => c.id !== keep.id && surnameStem(c.full_name) === stem && roleCompatible(c.role, keep.role),
-  );
+  const dups = (await listClients(accountId)).filter((c) => {
+    if (c.id === keep.id || !roleCompatible(c.role, keep.role)) return false;
+    // Exact same name + compatible role: treat as the same party (consistent
+    // with upsertClientByName's exact-match behavior).
+    if (normName(c.full_name) === normName(keep.full_name)) return true;
+    // Otherwise only fold a skeletal stub of the same likely person.
+    if (surnameStem(c.full_name) !== stem || !firstNameCompatible(c.full_name, keep.full_name)) return false;
+    return !c.email && !c.phone && !c.company && !c.secondary_name;
+  });
   if (!dups.length) return keep;
   const merged: Partial<Client> = {};
   const prefs = [keep.preferences, ...dups.map((d) => d.preferences)].filter(Boolean).join("; ");
@@ -646,19 +676,23 @@ export async function getDocument(
  * The most recent still-open draft for an account (within `withinMinutes`).
  * Lets a conversation continue a document across turns instead of orphaning it,
  * since tool-created document ids aren't carried in the text transcript.
+ *
+ * Scoped to `createdBy` (the acting member) when given: on a multi-actor account
+ * (owner + assistants), one person's fresh chat must not be told to continue —
+ * and overwrite — a draft another person left open.
  */
 export async function latestDraft(
   accountId: string,
-  withinMinutes = 180,
+  opts?: { createdBy?: string | null; withinMinutes?: number },
 ): Promise<DocumentRecord | null> {
-  const { data } = await admin()
+  const withinMinutes = opts?.withinMinutes ?? 180;
+  let q = admin()
     .from("documents")
     .select("*")
     .eq("account_id", accountId)
-    .eq("status", "draft")
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .eq("status", "draft");
+  if (opts?.createdBy) q = q.eq("created_by", opts.createdBy);
+  const { data } = await q.order("updated_at", { ascending: false }).limit(1).maybeSingle();
   if (!data) return null;
   const ageMin = (Date.now() - new Date((data as DocumentRecord).updated_at).getTime()) / 60000;
   return ageMin <= withinMinutes ? (data as DocumentRecord) : null;
