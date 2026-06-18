@@ -135,7 +135,12 @@ export async function insertMember(m: {
 }
 
 export async function setMemberStatus(memberId: string, status: "active" | "invited"): Promise<void> {
-  await admin().from("account_members").update({ status }).eq("id", memberId);
+  let q = admin().from("account_members").update({ status }).eq("id", memberId);
+  // Defense in depth: activation is only ever an invited assistant accepting.
+  // This prevents a pending (beta-unapproved) owner from self-activating even
+  // if a caller forgets to gate it. Admins flip pending→active in the dashboard.
+  if (status === "active") q = q.eq("role", "assistant").eq("status", "invited");
+  await q;
 }
 
 /** Remove an assistant from an account (owner-scoped; never the owner). */

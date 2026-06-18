@@ -15,6 +15,7 @@ import {
   duplicateDocument,
   getDocument,
   getFormTemplate,
+  getMember,
   insertMember,
   removeMember,
   renameFormTemplate,
@@ -237,7 +238,14 @@ export async function resendInviteAction(memberId: string): Promise<ActionResult
 /** Called after an invited assistant sets their password (now signed in). */
 export async function acceptInviteAction(): Promise<void> {
   const user = await getSessionUser();
-  if (user) await setMemberStatus(user.userId, "active");
+  if (!user) return;
+  // Only a genuinely invited assistant may activate through this path. A
+  // pending (beta-unapproved) owner must NOT be able to self-activate and
+  // bypass the private-beta gate by invoking this action directly.
+  const member = await getMember(user.userId);
+  if (member?.role === "assistant" && member.status === "invited") {
+    await setMemberStatus(user.userId, "active");
+  }
 }
 
 // ---------------------------------------------------------------------------
