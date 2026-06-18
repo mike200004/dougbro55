@@ -692,6 +692,12 @@ button.card:hover {
   .stack {
     gap: 32px;
   }
+  /* Let list rows wrap on narrow screens so a title + status badges + the
+     actions menu drop onto a second line instead of squeezing each other. */
+  .row {
+    flex-wrap: wrap;
+    row-gap: 10px;
+  }
   .hero {
     padding: 28px 0 4px;
   }
