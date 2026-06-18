@@ -37,7 +37,9 @@ export default function Chat() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: apiMessages.current }),
       });
-      const data = await res.json();
+      // A gateway/timeout can return a non-JSON body; don't let res.json() throw
+      // us into the generic "Network error" path before we read res.ok.
+      const data = await res.json().catch(() => ({} as { error?: string; messages?: ApiMessage[]; reply?: string }));
       if (!res.ok) {
         // Roll the failed turn back so retrying doesn't double the message.
         apiMessages.current = apiMessages.current.slice(0, -1);
@@ -60,6 +62,8 @@ export default function Chat() {
     <div>
       <div
         className="card"
+        aria-live="polite"
+        aria-busy={busy}
         style={{ minHeight: 320, maxHeight: "60vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 14 }}
       >
         {ui.length === 0 && (
@@ -93,6 +97,7 @@ export default function Chat() {
         <input
           className="input"
           style={{ flex: 1 }}
+          aria-label="Message the assistant"
           placeholder="Ask the assistant…"
           value={input}
           onChange={(e) => setInput(e.target.value)}

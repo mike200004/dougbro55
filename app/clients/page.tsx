@@ -59,7 +59,7 @@ export default async function ClientsPage({
 
       <div className="card" style={{ padding: 16 }}>
         <form method="GET" className="btnRow" style={{ alignItems: "center" }}>
-          <input className="input" style={{ flex: "1 1 240px" }} name="q" defaultValue={q} placeholder="Search contacts…" />
+          <input className="input" style={{ flex: "1 1 240px" }} name="q" defaultValue={q} aria-label="Search contacts" placeholder="Search contacts…" />
           <input type="hidden" name="f" value={f} />
           <button className="btn" type="submit">Search</button>
         </form>

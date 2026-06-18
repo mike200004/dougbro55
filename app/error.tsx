@@ -1,6 +1,13 @@
 "use client";
 
-export default function ErrorPage({ reset }: { error: Error; reset: () => void }) {
+import { useEffect } from "react";
+
+export default function ErrorPage({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
+  // Actually record the error — the copy below tells the user it's "been noted".
+  useEffect(() => {
+    console.error("App error boundary:", error.digest ?? "", error);
+  }, [error]);
+
   return (
     <div className="authWrap" style={{ textAlign: "center", paddingTop: 40 }}>
       <h1 className="pageTitle">Something went wrong</h1>
