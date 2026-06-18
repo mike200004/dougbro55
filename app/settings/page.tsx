@@ -43,7 +43,7 @@ export default async function SettingsPage({
         </p>
       </div>
 
-      {saved === "profile" && <div className="notice">Profile saved ✓</div>}
+      {saved === "profile" && <div className="notice noticeOk">Profile saved ✓</div>}
       {saved === "badphone" && (
         <div className="notice">That phone number doesn’t look valid — the profile wasn’t saved.</div>
       )}

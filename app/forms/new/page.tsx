@@ -34,6 +34,7 @@ export default function NewFormPage() {
   const [stage, setStage] = useState<"pick" | "working" | "review">("pick");
   const [status, setStatus] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
   const [pages, setPages] = useState<RenderedPage[]>([]);
   const [fields, setFields] = useState<PlacedField[]>([]);
   const [dragOver, setDragOver] = useState(false);
@@ -55,6 +56,7 @@ export default function NewFormPage() {
   function pickFile(f: File | null) {
     setFile(f);
     setError(null);
+    setInfo(null);
     if (f && f.size > 20 * 1024 * 1024) {
       setError("That PDF is over 20MB — try a smaller copy.");
       setFile(null);
@@ -70,6 +72,7 @@ export default function NewFormPage() {
       return;
     }
     setError(null);
+    setInfo(null);
     setStage("working");
     try {
       const buf = await file.arrayBuffer();
@@ -102,7 +105,7 @@ export default function NewFormPage() {
       // Flat / scanned → render pages and detect fields with vision.
       setStatus("Rendering pages…");
       if (doc.numPages > 6) {
-        setError(`Heads up — fields are auto-detected on the first 6 pages only (this PDF has ${doc.numPages}).`);
+        setInfo(`Heads up — fields are auto-detected on the first 6 pages only (this PDF has ${doc.numPages}).`);
       }
       const rendered: RenderedPage[] = [];
       const n = Math.min(doc.numPages, 6);
@@ -187,6 +190,7 @@ export default function NewFormPage() {
       </div>
 
       {error && <div className="notice">{error}</div>}
+      {info && <div className="notice noticeInfo" style={{ marginTop: error ? 10 : 0 }}>{info}</div>}
 
       {stage === "working" && (
         <div className="card" style={{ textAlign: "center", padding: 32 }}>

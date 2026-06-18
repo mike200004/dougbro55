@@ -11,7 +11,8 @@
   --brand: #1b2b44; /* navy primary */
   --brand-hover: #2a3c58;
   --brand-tint: #e7eaf0;
-  --gold: #a9843f; /* emblem gold accent */
+  --gold: #a9843f; /* emblem gold accent — decorative use only (rules, borders) */
+  --gold-text: #8a6a2e; /* darker gold for text — meets WCAG AA (≈5:1 on white) */
   --gold-tint: #f1e8d6;
   --ok: #5a7a4e;
   --ok-tint: #eaf0e3;
@@ -60,6 +61,18 @@ a:hover {
   text-decoration: underline;
 }
 
+/* Keyboard focus — a visible ring on every interactive element. Previously only
+   inputs showed focus (via box-shadow); buttons, links, nav, and tabs had none. */
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+/* On the dark navy bands a navy ring would vanish — use a light ring there. */
+.ctaBand :focus-visible,
+.phoneCallout :focus-visible {
+  outline-color: #fff;
+}
+
 /* ---------- Nav ---------- */
 .nav {
   background: var(--surface);
@@ -104,7 +117,7 @@ a:hover {
   background: var(--surface-2);
 }
 .navlink.active {
-  color: var(--gold);
+  color: var(--gold-text);
 }
 .navEmail {
   color: var(--muted);
@@ -227,7 +240,7 @@ button.card:hover {
   font-weight: 700;
   letter-spacing: 0.07em;
   text-transform: uppercase;
-  color: var(--gold);
+  color: var(--gold-text);
 }
 .cardTitle {
   font-family: var(--font-serif);
@@ -381,7 +394,8 @@ button.card:hover {
 }
 .input::placeholder,
 .textarea::placeholder {
-  color: #9aa7b8;
+  color: var(--muted);
+  opacity: 1; /* Firefox dims placeholders by default — keep our chosen value */
 }
 .input:focus,
 .textarea:focus {
@@ -412,6 +426,18 @@ button.card:hover {
   color: #8a6d1b;
   font-size: 14px;
   line-height: 1.5;
+}
+/* Success — confirmations like "Profile saved". Distinct from the amber warning. */
+.noticeOk {
+  border-color: #b7e0c6;
+  background: var(--ok-tint);
+  color: #3f5a38;
+}
+/* Neutral information — heads-up that isn't an error (e.g. "first 6 pages only"). */
+.noticeInfo {
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+  color: var(--text);
 }
 .muted {
   color: var(--muted);
