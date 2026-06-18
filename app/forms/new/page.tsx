@@ -252,8 +252,8 @@ export default function NewFormPage() {
             />
           </label>
           <div className="field">
-            <label className="label">Form name</label>
-            <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Listing Agreement" />
+            <label className="label" htmlFor="form-name">Form name</label>
+            <input id="form-name" className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Listing Agreement" />
           </div>
           <button className="btn btnPrimary" onClick={analyze} disabled={!file}>
             Analyze form

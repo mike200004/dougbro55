@@ -40,8 +40,8 @@ export default function ForgotPasswordPage() {
       ) : (
         <form onSubmit={submit} className="authCard">
           <div className="field">
-            <label className="label">Email</label>
-            <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+            <label className="label" htmlFor="fp-email">Email</label>
+            <input id="fp-email" className="input" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
           </div>
           {error && <p style={{ color: "var(--danger)", marginBottom: 12 }}>{error}</p>}
           <button type="submit" className="btn btnPrimary" disabled={busy}>

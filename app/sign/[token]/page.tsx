@@ -154,10 +154,10 @@ export default function SignPage({ params }: { params: Promise<{ token: string }
 
       <div className="card">
         <div className="field">
-          <label className="label">
+          <label className="label" htmlFor="sign-name">
             Your full legal name <span className="req">*</span>
           </label>
-          <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
+          <input id="sign-name" className="input" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} />
         </div>
 
         <div className="field">

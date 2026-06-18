@@ -64,10 +64,12 @@ export default function ResetPasswordPage() {
       ) : (
         <form onSubmit={submit} className="authCard">
           <div className="field">
-            <label className="label">New password</label>
+            <label className="label" htmlFor="rp-password">New password</label>
             <input
+              id="rp-password"
               className="input"
               type="password"
+              autoComplete="new-password"
               minLength={8}
               value={password}
               onChange={(e) => setPassword(e.target.value)}

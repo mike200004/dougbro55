@@ -48,10 +48,12 @@ export default function AcceptInvite() {
   return (
     <form onSubmit={submit} className="card">
       <div className="field">
-        <label className="label">New password</label>
+        <label className="label" htmlFor="ai-password">New password</label>
         <input
+          id="ai-password"
           className="input"
           type="password"
+          autoComplete="new-password"
           minLength={8}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
