@@ -40,24 +40,24 @@ export default function AddClient() {
     >
       <div className="formGrid">
         <div className="field">
-          <label className="label">Full name <span className="req">*</span></label>
-          <input className="input" name="full_name" required />
+          <label className="label" htmlFor="ac-full_name">Full name <span className="req">*</span></label>
+          <input id="ac-full_name" className="input" name="full_name" autoComplete="name" required />
         </div>
         <div className="field">
-          <label className="label">Co-buyer / co-seller</label>
-          <input className="input" name="secondary_name" />
+          <label className="label" htmlFor="ac-secondary_name">Co-buyer / co-seller</label>
+          <input id="ac-secondary_name" className="input" name="secondary_name" />
         </div>
         <div className="field">
-          <label className="label">Email</label>
-          <input className="input" name="email" type="email" />
+          <label className="label" htmlFor="ac-email">Email</label>
+          <input id="ac-email" className="input" name="email" type="email" autoComplete="email" />
         </div>
         <div className="field">
-          <label className="label">Phone</label>
-          <input className="input" name="phone" />
+          <label className="label" htmlFor="ac-phone">Phone</label>
+          <input id="ac-phone" className="input" name="phone" type="tel" autoComplete="tel" />
         </div>
         <div className="field">
-          <label className="label">Role</label>
-          <select className="input" name="role" defaultValue="">
+          <label className="label" htmlFor="ac-role">Role</label>
+          <select id="ac-role" className="input" name="role" defaultValue="">
             <option value="">—</option>
             <option value="buyer">Buyer</option>
             <option value="seller">Seller</option>
@@ -70,13 +70,13 @@ export default function AddClient() {
           </select>
         </div>
         <div className="field">
-          <label className="label">Company / firm</label>
-          <input className="input" name="company" placeholder="For agents, attorneys, lenders…" />
+          <label className="label" htmlFor="ac-company">Company / firm</label>
+          <input id="ac-company" className="input" name="company" placeholder="For agents, attorneys, lenders…" />
         </div>
       </div>
       <div className="field">
-        <label className="label">Notes</label>
-        <textarea className="textarea" name="notes" />
+        <label className="label" htmlFor="ac-notes">Notes</label>
+        <textarea id="ac-notes" className="textarea" name="notes" />
       </div>
       {err && <p style={{ color: "var(--danger)", marginBottom: 10 }}>{err}</p>}
       <div className="btnRow">

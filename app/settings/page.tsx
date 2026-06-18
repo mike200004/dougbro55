@@ -58,8 +58,8 @@ export default async function SettingsPage({
             <div className="formGrid">
               {FIELDS.map((f) => (
                 <div className="field" key={f.key}>
-                  <label className="label">{f.label}</label>
-                  <input className="input" name={f.key} defaultValue={profile?.[f.key] ?? ""} />
+                  <label className="label" htmlFor={`profile-${f.key}`}>{f.label}</label>
+                  <input id={`profile-${f.key}`} className="input" name={f.key} defaultValue={profile?.[f.key] ?? ""} />
                   {f.hint && <span className="hint">{f.hint}</span>}
                 </div>
               ))}

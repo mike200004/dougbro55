@@ -123,11 +123,12 @@ export default function DocumentEditor({
             <div className="formGrid">
               {sec.fields.map((f) => (
                 <div className="field" key={f.key}>
-                  <label className="label">
+                  <label className="label" htmlFor={`f-${f.key}`}>
                     {f.label} {f.required && <span className="req">*</span>}
                   </label>
                   {f.type === "longtext" ? (
                     <textarea
+                      id={`f-${f.key}`}
                       className="textarea"
                       name={f.key}
                       value={vals[f.key] ?? ""}
@@ -136,6 +137,7 @@ export default function DocumentEditor({
                     />
                   ) : f.type === "dropdown" ? (
                     <select
+                      id={`f-${f.key}`}
                       className="input"
                       name={f.key}
                       value={vals[f.key] ?? ""}
@@ -149,6 +151,7 @@ export default function DocumentEditor({
                     </select>
                   ) : f.type === "checkbox" ? (
                     <select
+                      id={`f-${f.key}`}
                       className="input"
                       name={f.key}
                       value={vals[f.key] ?? ""}
@@ -160,6 +163,7 @@ export default function DocumentEditor({
                     </select>
                   ) : (
                     <input
+                      id={`f-${f.key}`}
                       className="input"
                       name={f.key}
                       value={vals[f.key] ?? ""}

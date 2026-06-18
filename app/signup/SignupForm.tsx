@@ -55,36 +55,36 @@ export default function SignupForm() {
     <form onSubmit={submit} className="authCard">
       <div className="formGrid">
         <div className="field">
-          <label className="label">Your name <span className="req">*</span></label>
-          <input className="input" name="agent_name" required />
+          <label className="label" htmlFor="su-agent_name">Your name <span className="req">*</span></label>
+          <input id="su-agent_name" className="input" name="agent_name" autoComplete="name" required />
         </div>
         <div className="field">
-          <label className="label">Mobile phone <span className="req">*</span></label>
-          <input className="input" name="phone" placeholder="(203) 555-0123" required />
+          <label className="label" htmlFor="su-phone">Mobile phone <span className="req">*</span></label>
+          <input id="su-phone" className="input" name="phone" type="tel" autoComplete="tel" placeholder="(203) 555-0123" required />
         </div>
         <div className="field">
-          <label className="label">Email <span className="req">*</span></label>
-          <input className="input" name="email" type="email" required />
+          <label className="label" htmlFor="su-email">Email <span className="req">*</span></label>
+          <input id="su-email" className="input" name="email" type="email" autoComplete="email" required />
         </div>
         <div className="field">
-          <label className="label">Password <span className="req">*</span></label>
-          <input className="input" name="password" type="password" minLength={8} required />
+          <label className="label" htmlFor="su-password">Password <span className="req">*</span></label>
+          <input id="su-password" className="input" name="password" type="password" autoComplete="new-password" minLength={8} required />
         </div>
         <div className="field">
-          <label className="label">Broker / agency name</label>
-          <input className="input" name="broker_agency_name" />
+          <label className="label" htmlFor="su-broker_agency_name">Broker / agency name</label>
+          <input id="su-broker_agency_name" className="input" name="broker_agency_name" autoComplete="organization" />
         </div>
         <div className="field">
-          <label className="label">License number</label>
-          <input className="input" name="license_number" />
+          <label className="label" htmlFor="su-license_number">License number</label>
+          <input id="su-license_number" className="input" name="license_number" />
         </div>
         <div className="field">
-          <label className="label">Street address</label>
-          <input className="input" name="street" />
+          <label className="label" htmlFor="su-street">Street address</label>
+          <input id="su-street" className="input" name="street" autoComplete="street-address" />
         </div>
         <div className="field">
-          <label className="label">City / State / ZIP</label>
-          <input className="input" name="city_state_zip" />
+          <label className="label" htmlFor="su-city_state_zip">City / State / ZIP</label>
+          <input id="su-city_state_zip" className="input" name="city_state_zip" />
         </div>
       </div>
       <p className="hint" style={{ marginBottom: 12 }}>
