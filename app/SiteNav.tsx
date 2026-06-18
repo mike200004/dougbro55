@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
@@ -18,6 +18,19 @@ export default function SiteNav({ email }: { email: string | null }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const signedIn = !!email;
+
+  // Close the mobile menu on route change and on Escape.
+  useEffect(() => {
+    setOpen(false);
+  }, [pathname]);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
 
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname.startsWith(href);
@@ -63,8 +76,9 @@ export default function SiteNav({ email }: { email: string | null }) {
         <button
           className="navToggle"
           type="button"
-          aria-label="Menu"
+          aria-label={open ? "Close menu" : "Open menu"}
           aria-expanded={open}
+          aria-controls="nav-mobile-menu"
           onClick={() => setOpen((o) => !o)}
         >
           <span /><span /><span />
@@ -72,7 +86,7 @@ export default function SiteNav({ email }: { email: string | null }) {
       </div>
 
       {open && (
-        <div className="navMobile">
+        <div className="navMobile" id="nav-mobile-menu">
           {links.map((l) => (
             <Link
               key={l.href}
