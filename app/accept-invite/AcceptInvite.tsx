@@ -47,6 +47,9 @@ export default function AcceptInvite() {
 
   return (
     <form onSubmit={submit} className="card">
+      {!ready && !error && (
+        <p className="muted" style={{ marginBottom: 14 }}>Verifying your invite…</p>
+      )}
       <div className="field">
         <label className="label" htmlFor="ai-password">New password</label>
         <input

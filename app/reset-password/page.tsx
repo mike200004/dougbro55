@@ -59,6 +59,9 @@ export default function ResetPasswordPage() {
     <div className="authWrap">
       <h1 className="pageTitle">Choose a new password</h1>
       <p className="pageSub">You’ll be signed in right after.</p>
+      {!ready && !error && (
+        <p className="muted" style={{ marginTop: 12 }}>Verifying your reset link…</p>
+      )}
       {error && !ready ? (
         <div className="notice" style={{ marginTop: 20 }}>{error}</div>
       ) : (
