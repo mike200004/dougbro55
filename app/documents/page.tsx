@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { listDocuments, listSignatureRequests } from "@/lib/db";
-import { getTemplate } from "@/lib/templates";
+import { docTypeLabel } from "@/lib/templates";
 import { requireAccount } from "@/lib/auth";
 import DocumentRowActions from "./DocumentRowActions";
 
@@ -123,7 +123,7 @@ export default async function DocumentsPage({
       ) : (
         <div>
           {filtered.map((doc) => {
-            const kind = doc.type === "uploaded" ? "Uploaded form" : getTemplate(doc.type).shortName;
+            const kind = doc.type === "uploaded" ? "Uploaded form" : docTypeLabel(doc.type);
             const sig = sigState.get(doc.id);
             return (
               <div key={doc.id} className="row">

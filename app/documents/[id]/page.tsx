@@ -25,6 +25,36 @@ export default async function DocumentPage({
   ]);
   if (!doc) notFound();
 
+  // A legacy document whose built-in form was retired (e.g. the removed
+  // SmartMLS forms): its data is preserved, but there's no schema/PDF to edit
+  // or regenerate. Show a read-only record rather than crash.
+  if (!doc.template_id && !getTemplate(doc.type)) {
+    const entries = Object.entries(doc.fields || {}).filter(([, v]) => String(v).trim());
+    return (
+      <div className="stack">
+        <div>
+          <Link href="/" className="backlink">← Dashboard</Link>
+          <h1 className="pageTitle" style={{ marginTop: 10 }}>{doc.title || "Retired form"}</h1>
+          <p className="pageSub">
+            This form has been retired, so it can no longer be edited or downloaded as a PDF.
+            Its details are preserved below. To recreate it, upload your own version under{" "}
+            <Link href="/forms/new">Upload a form</Link>.
+          </p>
+        </div>
+        {entries.length > 0 && (
+          <div className="card">
+            {entries.map(([k, v]) => (
+              <div key={k} className="row" style={{ padding: "8px 0" }}>
+                <span className="rowSub" style={{ minWidth: 200 }}>{k}</span>
+                <span>{String(v)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   const signedReq = sigRequests.find((r) => r.status === "signed");
   const signatures = sigRequests
     .filter((r) => r.status === "pending" || r.status === "signed")
@@ -66,7 +96,7 @@ export default async function DocumentPage({
       section: f.placement ? `Page ${f.placement.page + 1}` : null,
     }));
   } else {
-    const tpl = getTemplate(doc.type as DocType);
+    const tpl = getTemplate(doc.type)!; // retired types handled above
     heading = tpl.name;
     sub = tpl.description;
     fields = userFields(doc.type as DocType).map((f) => ({

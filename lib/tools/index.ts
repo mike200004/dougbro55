@@ -95,7 +95,7 @@ export const toolSpecs: ToolSpec[] = [
   {
     name: "list_form_templates",
     description:
-      "List the agent's own uploaded form templates (forms they've uploaded, like a SmartMLS form or a brokerage document) that can be filled out. Call this when the agent refers to a form that isn't in the built-in library.",
+      "List the agent's own uploaded forms (their contract, a brokerage document, a disclosure) that can be filled out. Most agents work from their own uploaded forms — call this whenever they name a document that isn't in the built-in library.",
     parameters: { type: "object", properties: {} },
   },
   {
@@ -450,8 +450,8 @@ export async function runTool(
       }
 
       const type = input.type as DocType;
-      if (!DOC_TYPES.includes(type)) return { error: `Unknown document type: ${type}` };
       const tpl = getTemplate(type);
+      if (!DOC_TYPES.includes(type) || !tpl) return { error: `Unknown document type: ${type}` };
       let title = (input.title as string) || "";
       if (!title) {
         title = linkedClient ? `${tpl.shortName} — ${linkedClient.full_name}` : `${tpl.shortName} (new)`;
@@ -607,7 +607,7 @@ export async function runTool(
       }
       const toSelf = !explicitTo;
 
-      const docName = doc.template_id ? doc.title || "document" : getTemplate(doc.type as DocType).name;
+      const docName = doc.template_id ? doc.title || "document" : getTemplate(doc.type)?.name || doc.title || "document";
       const link = `${SITE_URL}/api/share/${makeShareToken(docId)}`;
       const who = (input.recipient_name as string)?.trim();
       const body = `${who ? who + ", " : ""}here is your ${docName}: ${link}`;
@@ -662,8 +662,14 @@ export async function runTool(
       if (!/.+@.+\..+/.test(to)) {
         return { ok: false, message: "What email address should I send it to?" };
       }
-      const { bytes, filename } = await renderDocument(doc);
-      const docName = doc.template_id ? doc.title || "your document" : getTemplate(doc.type as DocType).name;
+      let rendered;
+      try {
+        rendered = await renderDocument(doc);
+      } catch {
+        return { ok: false, message: "That form has been retired and can't be generated anymore." };
+      }
+      const { bytes, filename } = rendered;
+      const docName = doc.template_id ? doc.title || "your document" : getTemplate(doc.type)?.name || doc.title || "your document";
       const link = `${SITE_URL}/api/share/${makeShareToken(docId)}`;
       const who = (input.recipient_name as string)?.trim();
       const sent = await sendEmail({

@@ -303,6 +303,7 @@ export async function createClientAction(formData: FormData) {
 export async function newDocumentAction(type: DocType) {
   const { accountId, userId } = await requireAccount();
   const tpl = getTemplate(type);
+  if (!tpl) redirect("/"); // unknown/retired type — nothing to create
   const doc = await createDocument(accountId, {
     type,
     title: `${tpl.shortName} (new)`,
@@ -320,7 +321,7 @@ export async function saveDocumentFieldsAction(docId: string, formData: FormData
     const ft = await getFormTemplate(accountId, doc.template_id);
     valid = (ft?.fields ?? []).map((f) => f.key);
   } else {
-    valid = getTemplate(doc.type as DocType).fields.filter((f) => !f.source).map((f) => f.key);
+    valid = (getTemplate(doc.type)?.fields ?? []).filter((f) => !f.source).map((f) => f.key);
   }
   const fields: Record<string, string> = {};
   for (const key of valid) fields[key] = String(formData.get(key) ?? "");
@@ -428,7 +429,7 @@ export async function sendDocumentAction(
   const to = normalizePhone(toPhone);
   if (!to) return { ok: false, error: "Enter a valid recipient phone number." };
 
-  const docName = doc.template_id ? doc.title || "document" : getTemplate(doc.type as DocType).name;
+  const docName = doc.template_id ? doc.title || "document" : getTemplate(doc.type)?.name || doc.title || "document";
   const link = `${SEND_SITE_URL}/api/share/${makeShareToken(docId)}`;
   const who = recipientName?.trim();
   const body = `${who ? who + ", " : ""}here is your ${docName}: ${link}`;

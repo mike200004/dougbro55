@@ -12,7 +12,7 @@ import {
   memberNames,
 } from "@/lib/db";
 import { listActivity } from "@/lib/activity";
-import { templateCategories, templateList, getTemplate } from "@/lib/templates";
+import { templateCategories, templateList, docTypeLabel } from "@/lib/templates";
 import { getAccount } from "@/lib/auth";
 import { newDocumentAction, startFromTemplateAction } from "./actions";
 import AddClient from "./AddClient";
@@ -115,7 +115,7 @@ export default async function Home({
             <div className="cardKicker">Upload</div>
             <div className="cardTitle" style={{ fontSize: 19 }}>+ Upload your own form</div>
             <div className="cardBody">
-              SmartMLS forms, brokerage paperwork, disclosures — bring the documents you
+              Your contracts, brokerage paperwork, disclosures — bring the documents you
               actually use.
             </div>
           </Link>
@@ -164,8 +164,8 @@ export default async function Home({
           <p className="muted">No documents yet. Start one above or ask the assistant.</p>
         ) : (
           documents.slice(0, 8).map((doc) => {
-            const kind = doc.type === "uploaded" ? "Uploaded form" : getTemplate(doc.type).shortName;
-            const fallback = doc.type === "uploaded" ? "Uploaded form" : getTemplate(doc.type).name;
+            const kind = doc.type === "uploaded" ? "Uploaded form" : docTypeLabel(doc.type);
+            const fallback = kind;
             return (
               <Link key={doc.id} href={`/documents/${doc.id}`} className="row" style={{ textDecoration: "none" }}>
                 <div>

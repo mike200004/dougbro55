@@ -29,6 +29,19 @@ import { admin } from "@/lib/supabase/admin";
 const INK = rgb(0.06, 0.09, 0.23);
 
 /**
+ * Thrown when a built-in document's template no longer exists — e.g. a legacy
+ * row whose form was retired (the SmartMLS forms were removed). The data is
+ * preserved; it just can't be re-rendered to the original PDF. Callers should
+ * catch this and show a friendly notice rather than a 500.
+ */
+export class TemplateRetiredError extends Error {
+  constructor(type: string) {
+    super(`The "${type}" form has been retired and can no longer be generated.`);
+    this.name = "TemplateRetiredError";
+  }
+}
+
+/**
  * Fill a flat template PDF by overlaying typed values at mapped coordinates.
  * Agent-profile-sourced fields are pulled from `profile`; everything else from
  * `fields`. Returns the rendered PDF bytes.
@@ -39,6 +52,7 @@ export async function fillDocument(
   profile: AgentProfile | null,
 ): Promise<Uint8Array> {
   const tpl = getTemplate(type);
+  if (!tpl) throw new TemplateRetiredError(type);
   const bytes = await fs.readFile(path.join(process.cwd(), tpl.file));
 
   // Generated library documents carry embedded form fields named after the
@@ -229,7 +243,7 @@ export async function renderDocument(
   }
   const profile = await getProfile(doc.account_id);
   const bytes = await fillDocument(doc.type as DocType, doc.fields, profile);
-  return { bytes, filename: safe(doc.title || getTemplate(doc.type as DocType).shortName) };
+  return { bytes, filename: safe(doc.title || getTemplate(doc.type)?.shortName || "document") };
 }
 
 // ---------------------------------------------------------------------------

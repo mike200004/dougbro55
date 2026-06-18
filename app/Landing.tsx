@@ -5,7 +5,7 @@ const STEPS = [
   {
     n: "1",
     title: "Upload it or call it in",
-    body: "Send Pheme a SmartMLS form, a contract, or any document — or just call your Pheme number from the road.",
+    body: "Upload any PDF you already use — a contract, a disclosure, your brokerage’s own form — or just call your Pheme number from the road.",
   },
   {
     n: "2",
@@ -22,7 +22,7 @@ const STEPS = [
 const FAQ = [
   {
     q: "What documents can Pheme fill?",
-    a: "Thirteen are built in — listing agreements, purchase agreements, buyer representation, dual agency consent, addenda, escalation clauses, mutual releases, deposit receipts, lead-paint disclosures, rental applications, plus broker paperwork like referral fee agreements, commission disbursement authorizations (CDAs), and independent contractor agreements. And you can upload any of your own PDFs: fillable forms are read automatically; flat or scanned forms get AI field detection you fine-tune once, then reuse forever.",
+    a: "Any of them — the whole point is your own forms. Upload any PDF you use (your purchase contract, a disclosure, your brokerage’s paperwork): fillable forms are read automatically, and flat or scanned forms get AI field detection you fine-tune once, then reuse forever. Ten ready-to-use documents are also built in — listing agreements, addenda, escalation clauses, mutual releases, deposit receipts, lead-paint disclosures, rental applications, plus broker paperwork like referral fee agreements, commission disbursement authorizations (CDAs), and independent contractor agreements.",
   },
   {
     q: "Is Pheme for agents or brokerages?",
@@ -48,12 +48,12 @@ const FAQ = [
 
 const FEATURES = [
   {
-    title: "A real document library",
-    body: "Thirteen ready-to-fill documents — listings, purchase agreements, addenda, releases, disclosures, rental applications, plus broker paperwork like CDAs, referral fees, and contractor agreements.",
+    title: "Your own forms, filled for you",
+    body: "Upload the PDF you actually use — your purchase contract, a disclosure, your brokerage’s paperwork. Pheme reads the fields, then fills it by voice, text, or web, and your whole team can reuse it.",
   },
   {
-    title: "Any document — not just templates",
-    body: "Upload a SmartMLS form, a disclosure, or your brokerage’s own paperwork. Pheme reads it and fills it out — and your whole team can reuse it.",
+    title: "A ready-made library too",
+    body: "Ten documents are built in — listings, addenda, releases, disclosures, rental applications, plus broker paperwork like CDAs, referral fees, and contractor agreements.",
   },
   {
     title: "Hands-free, from anywhere",
@@ -76,8 +76,8 @@ const FEATURES = [
     body: "Add an assistant with their own login and phone number. Everything they do flows into your account — and you see who did what.",
   },
   {
-    title: "Built for Connecticut",
-    body: "Pheme speaks CT real estate — SmartMLS contracts, buyer representation, dual agency consent (Public Act 96-159), and more.",
+    title: "Built around your forms",
+    body: "Bring the documents your market and brokerage actually use. Pheme learns each one once — then fills it forever, by voice, text, or web.",
   },
 ];
 

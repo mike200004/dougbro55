@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDocument } from "@/lib/db";
 import { getAccount } from "@/lib/auth";
-import { renderDocument } from "@/lib/pdf/fill";
+import { renderDocument, TemplateRetiredError } from "@/lib/pdf/fill";
 
 export const runtime = "nodejs";
 
@@ -23,12 +23,23 @@ export async function GET(
     return NextResponse.json({ error: "Document not found" }, { status: 404 });
   }
 
-  const { bytes, filename } = await renderDocument(doc);
+  let rendered;
+  try {
+    rendered = await renderDocument(doc);
+  } catch (err) {
+    if (err instanceof TemplateRetiredError) {
+      return NextResponse.json(
+        { error: "This form has been retired — its details are preserved, but the PDF can no longer be generated." },
+        { status: 410 },
+      );
+    }
+    throw err;
+  }
 
-  return new NextResponse(Buffer.from(bytes), {
+  return new NextResponse(Buffer.from(rendered.bytes), {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `inline; filename="${filename}.pdf"`,
+      "Content-Disposition": `inline; filename="${rendered.filename}.pdf"`,
       "Cache-Control": "no-store",
     },
   });

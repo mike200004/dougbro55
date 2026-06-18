@@ -179,9 +179,10 @@ export default function NewFormPage() {
         <Link href="/" className="backlink">← Dashboard</Link>
         <h1 className="pageTitle" style={{ marginTop: 10 }}>Upload a form</h1>
         <p className="pageSub">
-          Upload any PDF — a SmartMLS form, a brokerage document, a disclosure. If it’s
+          Upload any PDF — your contract, a brokerage document, a disclosure. If it’s
           fillable, Pheme reads its fields automatically. If it’s flat or scanned, Pheme finds
-          the blanks for you to confirm, then saves it as a reusable form.
+          the blanks for you to confirm, then saves it as a reusable form you can fill by
+          voice, text, or web.
         </p>
       </div>
 
@@ -248,7 +249,7 @@ export default function NewFormPage() {
           </label>
           <div className="field">
             <label className="label">Form name</label>
-            <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. SmartMLS Listing Agreement" />
+            <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Listing Agreement" />
           </div>
           <button className="btn btnPrimary" onClick={analyze} disabled={!file}>
             Analyze form

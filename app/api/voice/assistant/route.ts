@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAccountByPhone, buildMemoryDigest, latestDraft, getProfile, listDocuments } from "@/lib/db";
+import { getAccountByPhone, buildMemoryDigest, latestDraft, getProfile, listDocuments, listFormTemplates } from "@/lib/db";
 import { missingRequired, userFields, getTemplate, isDocType } from "@/lib/templates";
 import type { DocType } from "@/lib/types";
 import { normalizePhone } from "@/lib/phone";
@@ -157,10 +157,11 @@ async function buildOverrides(
     };
   }
 
-  const [digest, draft, profile] = await Promise.all([
+  const [digest, draft, profile, forms] = await Promise.all([
     buildMemoryDigest(actor.accountId).catch(() => ""),
     latestDraft(actor.accountId).catch(() => null),
     getProfile(actor.accountId).catch(() => null),
+    listFormTemplates(actor.accountId).catch(() => []),
   ]);
 
   const firstName = (actor.name || profile?.agent_name || "").trim().split(/\s+/)[0] || "";
@@ -185,7 +186,7 @@ async function buildOverrides(
         missing.length === 0
           ? " All required fields are filled — it just hasn't been filed."
           : ` Still missing: ${labels.join(", ")}.`;
-      detail = ` It's a ${getTemplate(draft.type).name}.` + detail;
+      detail = ` It's a ${getTemplate(draft.type)?.name ?? draft.type}.` + detail;
     }
     lines.push(
       `DOCUMENT IN PROGRESS: "${title}" (document_id: ${draft.id}).${detail} If the caller wants to keep going on it, continue THIS document — set fields and finalize on this id; do not create a new one unless they clearly want a different document.`,
@@ -197,6 +198,17 @@ async function buildOverrides(
       ? `People you already know on this account:\n${digest}`
       : "No saved clients yet — this is a fresh book of business.",
   );
+
+  // Forms the caller has uploaded — so when they name one ("let's do my
+  // listing agreement"), you already know it exists and can start it with
+  // create_document(template_name) without a lookup first.
+  if (forms.length) {
+    lines.push(
+      `Forms this agent has uploaded and can fill by name (use create_document with template_name): ${forms
+        .map((f) => `"${f.name}"`)
+        .join(", ")}.`,
+    );
+  }
 
   const greetings = firstName
     ? [

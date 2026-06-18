@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getClient, getClientDossier } from "@/lib/db";
 import { requireAccount } from "@/lib/auth";
-import { getTemplate } from "@/lib/templates";
+import { docTypeLabel } from "@/lib/templates";
 import { updateClientAction } from "@/app/actions";
 import DeleteClientButton from "./DeleteClientButton";
 import SubmitButton from "@/app/SubmitButton";
@@ -99,7 +99,7 @@ export default async function ClientDetailPage({
             <Link key={d.id} href={`/documents/${d.id}`} className="row" style={{ textDecoration: "none" }}>
               <div>
                 <div className="rowMain">
-                  {d.type === "uploaded" ? "Uploaded form" : getTemplate(d.type as Parameters<typeof getTemplate>[0]).shortName}
+                  {d.type === "uploaded" ? "Uploaded form" : docTypeLabel(d.type)}
                   {d.property ? ` — ${d.property}` : ""}
                 </div>
                 <div className="rowSub">{new Date(d.date).toLocaleDateString()}</div>

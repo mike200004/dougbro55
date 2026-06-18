@@ -6,7 +6,7 @@ import {
   getSignatureRequestById,
   updateSignatureRequest,
 } from "@/lib/db";
-import { renderDocument, stampSignaturePage } from "@/lib/pdf/fill";
+import { renderDocument, stampSignaturePage, TemplateRetiredError } from "@/lib/pdf/fill";
 import { uploadSignedFile } from "@/lib/storage";
 import { sendEmail, emailConfigured } from "@/lib/email";
 import { sendSms } from "@/lib/twilio";
@@ -43,14 +43,21 @@ export async function GET(
   const { reqRow, doc } = resolved;
 
   if (req.nextUrl.searchParams.get("pdf")) {
-    const { bytes, filename } = await renderDocument(doc);
-    return new NextResponse(Buffer.from(bytes), {
-      headers: {
-        "Content-Type": "application/pdf",
-        "Content-Disposition": `inline; filename="${filename}.pdf"`,
-        "Cache-Control": "no-store",
-      },
-    });
+    try {
+      const { bytes, filename } = await renderDocument(doc);
+      return new NextResponse(Buffer.from(bytes), {
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `inline; filename="${filename}.pdf"`,
+          "Cache-Control": "no-store",
+        },
+      });
+    } catch (err) {
+      if (err instanceof TemplateRetiredError) {
+        return NextResponse.json({ error: "This form has been retired and can no longer be signed." }, { status: 410 });
+      }
+      throw err;
+    }
   }
 
   return NextResponse.json({
@@ -110,7 +117,15 @@ export async function POST(
   }
 
   // Render the current document of record and append the certificate page.
-  const { bytes } = await renderDocument(doc);
+  let bytes;
+  try {
+    ({ bytes } = await renderDocument(doc));
+  } catch (err) {
+    if (err instanceof TemplateRetiredError) {
+      return NextResponse.json({ error: "This form has been retired and can no longer be signed." }, { status: 410 });
+    }
+    throw err;
+  }
   const signedAtIso = new Date().toISOString();
   const ip = clientIp(req);
   const userAgent = req.headers.get("user-agent") || "unknown";
