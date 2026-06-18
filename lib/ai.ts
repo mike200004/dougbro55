@@ -3,7 +3,11 @@ import { templateCategories, templateList, userFields } from "@/lib/templates";
 import { toolSpecs } from "@/lib/tools";
 import type { AgentProfile } from "@/lib/types";
 
-export const MODEL = process.env.OPENAI_MODEL || "gpt-4o";
+// Default aligns web/SMS with the voice (Vapi) assistant, which already runs
+// gpt-4.1-mini — so all three entrypoints behave consistently and we're off the
+// dated gpt-4o. Override per-deploy with OPENAI_MODEL (e.g. gpt-4.1 for higher
+// web quality).
+export const MODEL = process.env.OPENAI_MODEL || "gpt-4.1-mini";
 
 let _client: OpenAI | null = null;
 export function openai(): OpenAI {
