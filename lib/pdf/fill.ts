@@ -196,8 +196,10 @@ export async function fillTemplateDocument(
     return pdf.save();
   }
 
-  // overlay (flat/scanned templates) — coordinate draw using saved placements
-  const pdf = await PDFDocument.load(bytes);
+  // overlay (flat/scanned templates) — coordinate draw using saved placements.
+  // Match the acroform path's ignoreEncryption so an encrypted-but-printable
+  // template doesn't throw here.
+  const pdf = await PDFDocument.load(bytes, { ignoreEncryption: true });
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const pages = pdf.getPages();
   for (const field of template.fields) {

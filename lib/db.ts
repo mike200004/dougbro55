@@ -881,6 +881,25 @@ export async function updateSignatureRequest(
   await admin().from("signature_requests").update(patch).eq("id", id);
 }
 
+/**
+ * Atomically move a request out of `from` status. Returns true only for the
+ * single caller that wins the transition — so two concurrent signs (or a
+ * sign racing a decline) can't both execute the same request.
+ */
+export async function transitionSignatureRequest(
+  id: string,
+  from: SignatureRequest["status"],
+  patch: Partial<Pick<SignatureRequest, "status" | "signed_path" | "audit" | "signed_at" | "signer_name">>,
+): Promise<boolean> {
+  const { data } = await admin()
+    .from("signature_requests")
+    .update(patch)
+    .eq("id", id)
+    .eq("status", from)
+    .select("id");
+  return Array.isArray(data) && data.length > 0;
+}
+
 export async function listSignatureRequests(
   accountId: string,
   documentId?: string,
