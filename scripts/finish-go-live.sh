@@ -36,7 +36,7 @@ sed -i '' "s|^STRIPE_SECRET_KEY=.*|STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}|" .env
 echo "  .env.local updated"
 
 echo "3/3  Redeploying production (env changes need a fresh build)..."
-vc redeploy pheme-siore.vercel.app --yes 2>/dev/null || vc --prod --yes
+vc redeploy pheme.deals || vc --prod --yes
 
 echo
 echo "Done. Test: sign up at https://pheme.deals/signup, approve the account in Supabase"
