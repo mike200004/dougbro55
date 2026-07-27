@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Metadata } from "next";
+import { getAccount } from "@/lib/auth";
 import { PLANS, TRIAL_DAYS, TRIAL_MINUTES } from "@/lib/billing";
 
 export const metadata: Metadata = {
@@ -27,7 +28,12 @@ const FAQ: { q: string; a: string }[] = [
   },
 ];
 
-export default function PricingPage() {
+export default async function PricingPage() {
+  // Signed-in visitors go to Settings (where plans are actually picked);
+  // everyone else starts at signup.
+  const account = await getAccount().catch(() => null);
+  const ctaHref = account ? "/settings" : "/signup";
+  const ctaLabel = account ? "Choose in Settings" : "Start free trial";
   return (
     <div className="stack">
       <header style={{ textAlign: "center" }}>
@@ -67,8 +73,8 @@ export default function PricingPage() {
               <li>✓ Client memory &amp; recall</li>
               <li className="rowSub">Extra minutes ${(p.overageCentsPerMin / 100).toFixed(2)}/min</li>
             </ul>
-            <Link href="/signup" className={`btn btnLg ${p.key === "pro" ? "btnPrimary" : ""}`} style={{ width: "100%", textAlign: "center" }}>
-              Start free trial
+            <Link href={ctaHref} className={`btn btnLg ${p.key === "pro" ? "btnPrimary" : ""}`} style={{ width: "100%", textAlign: "center" }}>
+              {ctaLabel}
             </Link>
           </div>
         ))}

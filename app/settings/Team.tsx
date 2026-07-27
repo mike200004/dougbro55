@@ -43,7 +43,9 @@ export default function Team({
       setError(res.error);
       return;
     }
-    setNotice("Invite sent. They'll get an email to set a password.");
+    // Surface the action's own message (e.g. "added but the email didn't
+    // send — resend it") instead of always claiming the invite was delivered.
+    setNotice(res.message ?? "Invite sent. They'll get an email to set a password.");
     setOpen(false);
     router.refresh();
   }

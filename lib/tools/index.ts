@@ -327,6 +327,35 @@ export interface ToolContext {
   channel?: "voice" | "sms" | "web";
 }
 
+// Tools that create or move documents — the product's value moments — require
+// an active plan on every channel (web chat, SMS, voice). Reads/recall stay
+// open so an expired account can still look at what it already has.
+const PLAN_GATED = new Set([
+  "create_document",
+  "finalize_document",
+  "send_document",
+  "email_document",
+  "request_signature",
+]);
+// Plan state cached briefly per warm lambda — one DB read per account/minute,
+// not one per tool call on the latency-critical voice path.
+const planGateCache = new Map<string, { active: boolean; at: number }>();
+const PLAN_GATE_TTL_MS = 60_000;
+
+async function planActive(accountId: string): Promise<boolean> {
+  const hit = planGateCache.get(accountId);
+  if (hit && Date.now() - hit.at < PLAN_GATE_TTL_MS) return hit.active;
+  try {
+    const { getPlanState } = await import("@/lib/billing");
+    const active = (await getPlanState(accountId)).active;
+    planGateCache.set(accountId, { active, at: Date.now() });
+    if (planGateCache.size > 500) planGateCache.clear();
+    return active;
+  } catch {
+    return true; // fail open — a billing-lookup blip must never kill a live call
+  }
+}
+
 export async function runTool(
   name: string,
   input: Record<string, unknown>,
@@ -334,6 +363,13 @@ export async function runTool(
 ): Promise<unknown> {
   const acc = ctx.accountId;
   const voice = ctx.channel === "voice";
+  if (PLAN_GATED.has(name) && !(await planActive(acc))) {
+    return {
+      error: "plan_inactive",
+      message:
+        "This account's Pheme plan isn't active (the trial ended or the subscription lapsed), so documents can't be created or sent right now. Tell the user to pick a plan under Settings → Plan & billing on pheme.deals — everything they've already made is safe and waiting.",
+    };
+  }
   switch (name) {
     case "get_agent_profile": {
       const profile = await getProfile(acc);

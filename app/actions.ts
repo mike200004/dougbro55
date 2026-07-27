@@ -38,6 +38,8 @@ import { uploadTemplateFile } from "@/lib/storage";
 import { detectAcroFields } from "@/lib/pdf/fill";
 import { getTemplate, missingRequired } from "@/lib/templates";
 import {
+  cancelStripeSubscriptionNow,
+  changeSubscriptionPlan,
   createCheckoutSession,
   createPortalSession,
   getPlanState,
@@ -312,6 +314,23 @@ export async function startCheckoutAction(
   if (account.role !== "owner") return { ok: false, error: "Only the account owner can manage billing." };
   try {
     const existing = await getSubscription(account.accountId);
+
+    // Already subscribed → switch the existing subscription in place (with
+    // proration). Running Checkout again would create a SECOND subscription
+    // that double-bills every cycle.
+    if (existing?.stripe_subscription_id && ["active", "trialing", "past_due"].includes(existing.status)) {
+      await changeSubscriptionPlan(existing.stripe_subscription_id, plan, interval);
+      const def = planDef(plan);
+      await logActivity(account.accountId, "billing", `Switched to Pheme ${def?.name ?? plan}.`, {
+        actorId: account.userId,
+      });
+      revalidatePath("/settings");
+      return {
+        ok: true,
+        message: `You're on ${def?.name ?? plan} now — the price difference is prorated on your next invoice. It may take a few seconds to show here.`,
+      };
+    }
+
     const url = await createCheckoutSession({
       accountId: account.accountId,
       email: account.email || "",
@@ -698,6 +717,9 @@ export async function deleteAccountAction(confirmText: string): Promise<ActionRe
   if (account.role !== "owner") return { ok: false, error: "Only the account owner can delete the account." };
   if (confirmText !== "DELETE") return { ok: false, error: "Type DELETE to confirm." };
   const sb = admin();
+  // Stop billing FIRST — deleting the account cascades the subscriptions row
+  // away, and an orphaned Stripe subscription would keep charging forever.
+  await cancelStripeSubscriptionNow(await getSubscription(account.accountId));
   // Remove the account's uploaded + signed PDFs from storage (DB cascade
   // doesn't reach the storage bucket).
   try {

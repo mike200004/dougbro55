@@ -231,13 +231,20 @@ export function usageWindowStart(state: PlanState): Date {
   if (sub && PAID_STATUSES.has(sub.status) && sub.current_period_start) {
     const periodStart = new Date(sub.current_period_start);
     if (sub.billing_interval !== "year") return periodStart;
-    // Latest monthly anniversary of the period start that is <= now.
+    // Latest monthly anniversary of the period start that is <= now. Built by
+    // walking candidate months and clamping the day-of-month (a Jan-31 anchor
+    // must yield Feb-28, never roll into March — and never land in the future).
     const now = new Date();
-    const anchor = new Date(periodStart);
-    anchor.setUTCFullYear(now.getUTCFullYear(), now.getUTCMonth(), anchor.getUTCDate());
-    if (anchor > now) anchor.setUTCMonth(anchor.getUTCMonth() - 1);
-    if (anchor < periodStart) return periodStart;
-    return anchor;
+    const day = periodStart.getUTCDate();
+    const time = [periodStart.getUTCHours(), periodStart.getUTCMinutes(), periodStart.getUTCSeconds()] as const;
+    for (let back = 0; back <= 2; back++) {
+      const y = now.getUTCFullYear();
+      const m = now.getUTCMonth() - back;
+      const lastDay = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+      const candidate = new Date(Date.UTC(y, m, Math.min(day, lastDay), ...time));
+      if (candidate <= now) return candidate < periodStart ? periodStart : candidate;
+    }
+    return periodStart;
   }
   return new Date(0); // trial/expired: all-time
 }
@@ -423,6 +430,46 @@ export async function createPortalSession(customerId: string): Promise<string> {
     return_url: `${SITE}/settings`,
   });
   return session.url as string;
+}
+
+/**
+ * Switch an EXISTING active subscription to a different plan/interval in
+ * place, with immediate proration. Critical: an active subscriber must never
+ * be sent through Checkout again — that would create a second, parallel
+ * subscription that double-bills every cycle.
+ */
+export async function changeSubscriptionPlan(
+  stripeSubscriptionId: string,
+  plan: PlanKey,
+  interval: "month" | "year",
+): Promise<void> {
+  const price = await priceIdForLookup(lookupKeyFor(plan, interval));
+  const current = await fetchStripeSubscription(stripeSubscriptionId);
+  const itemId = (current.items?.data?.[0] as { id?: string } | undefined)?.id;
+  if (!itemId) throw new Error("Could not read the current subscription item.");
+  await stripeReq("POST", `/subscriptions/${stripeSubscriptionId}`, {
+    "items[0][id]": itemId,
+    "items[0][price]": price,
+    proration_behavior: "always_invoice", // charge/credit the difference now
+    cancel_at_period_end: "false",
+  });
+}
+
+/**
+ * Cancel a subscription immediately (used when the account itself is being
+ * deleted — otherwise Stripe would keep charging a customer whose account no
+ * longer exists). Unbilled overage is swept onto a final invoice first.
+ */
+export async function cancelStripeSubscriptionNow(sub: Subscription | null): Promise<void> {
+  if (!stripeConfigured() || !sub?.stripe_subscription_id) return;
+  try {
+    if (sub.stripe_customer_id) await invoicePendingItems(sub.stripe_customer_id);
+    await stripeReq("POST", `/subscriptions/${sub.stripe_subscription_id}/cancel`, {});
+  } catch (err) {
+    // A already-canceled sub 404s here — that's fine; anything else gets logged
+    // but never blocks account deletion.
+    console.error("[billing] cancel on account delete", err);
+  }
 }
 
 // ---------------------------------------------------------------------------

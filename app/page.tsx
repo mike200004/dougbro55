@@ -13,6 +13,7 @@ import {
 } from "@/lib/db";
 import { listActivity } from "@/lib/activity";
 import { templateCategories, templateList, docTypeLabel } from "@/lib/templates";
+import { getPlanState, getVoiceUsage } from "@/lib/billing";
 import { getAccount } from "@/lib/auth";
 import { newDocumentAction, startFromTemplateAction } from "./actions";
 import AddClient from "./AddClient";
@@ -47,7 +48,7 @@ export default async function Home({
 
   // Render only what the dashboard shows (bounded lists); stat tiles use count
   // queries so the page doesn't load a tenant's whole history on every login.
-  const [profile, clients, documents, names, forms, members, sigs, activity, clientCount, filedThisMonth] =
+  const [profile, clients, documents, names, forms, members, sigs, activity, clientCount, filedThisMonth, planState] =
     await Promise.all([
       getProfile(accountId),
       listClients(accountId, { limit: 6 }),
@@ -59,7 +60,10 @@ export default async function Home({
       listActivity(accountId, 8),
       countClients(accountId),
       countDocuments(accountId, { status: "completed", archived: false, updatedSince: monthStart.toISOString() }),
+      getPlanState(accountId).catch(() => null),
     ]);
+  const trialUsage =
+    planState?.plan === "trial" ? await getVoiceUsage(accountId, planState).catch(() => null) : null;
 
   // Count distinct documents awaiting signature, not raw request rows — a
   // document can have several pending requests, and the Documents list shows
@@ -78,6 +82,35 @@ export default async function Home({
           <Link href="/assistant">AI assistant</Link> to fill one out hands-free.
         </p>
       </header>
+
+      {planState?.plan === "trial" && (
+        <div className="notice" role="status">
+          <strong>Free trial</strong> — {planState.trialDaysLeft ?? 0} day
+          {(planState.trialDaysLeft ?? 0) === 1 ? "" : "s"}
+          {trialUsage
+            ? ` and ${trialUsage.remainingMinutes} voice minute${trialUsage.remainingMinutes === 1 ? "" : "s"}`
+            : ""}{" "}
+          left. Everything else is unlimited while you try it.{" "}
+          {account.role === "owner" && (
+            <Link href="/settings" style={{ fontWeight: 700 }}>
+              Pick a plan →
+            </Link>
+          )}
+        </div>
+      )}
+      {planState && !planState.active && (
+        <div className="notice" role="alert">
+          <strong>Your plan isn’t active</strong> — document filing and the phone assistant are
+          paused, but everything you made is safe.{" "}
+          {account.role === "owner" ? (
+            <Link href="/settings" style={{ fontWeight: 700 }}>
+              Choose a plan to switch it back on →
+            </Link>
+          ) : (
+            "Ask the account owner to pick a plan in Settings."
+          )}
+        </div>
+      )}
 
       <Onboarding
         phone={PHEME_NUMBER}

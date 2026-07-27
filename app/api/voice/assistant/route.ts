@@ -189,7 +189,7 @@ function timeOfDay(): "morning" | "afternoon" | "evening" {
 
 async function buildOverrides(
   callerPhone: string | null,
-): Promise<{ variableValues: { memoryDigest: string }; firstMessage?: string }> {
+): Promise<{ variableValues: { memoryDigest: string }; firstMessage?: string; maxDurationSeconds?: number }> {
   const lines: string[] = [baseContext()];
 
   const actor = callerPhone ? await getAccountByPhone(callerPhone) : null;
@@ -219,12 +219,13 @@ async function buildOverrides(
   // canceled/unpaid one) — or a trial that has burned its included minutes with
   // no overage allowance — gets a short "you need a plan" message and an
   // instruction to end the call immediately, instead of a 40-minute session.
+  let planLine: string | null = null;
+  let maxDurationSeconds: number | undefined;
   if (plan) {
-    let blocked = !plan.active;
-    if (!blocked && !plan.overageAllowed && Number.isFinite(plan.minutesIncluded)) {
-      const usage = await getVoiceUsage(actor.accountId, plan).catch(() => null);
-      if (usage && usage.remainingMinutes <= 0) blocked = true;
-    }
+    const usage = Number.isFinite(plan.minutesIncluded)
+      ? await getVoiceUsage(actor.accountId, plan).catch(() => null)
+      : null;
+    const blocked = !plan.active || (!plan.overageAllowed && usage !== null && usage.remainingMinutes <= 0);
     if (blocked) {
       const line =
         plan.plan === "expired"
@@ -237,7 +238,24 @@ async function buildOverrides(
           memoryDigest: `${baseContext()}\n\nACCOUNT PLAN: INACTIVE. Deliver your first message, then call the end_call tool immediately. Do not use any other tool, take any request, or continue the conversation — the account must add or renew a plan at pheme.deals first.`,
         },
         firstMessage: line,
+        maxDurationSeconds: 120,
       };
+    }
+    if (usage) {
+      if (!plan.overageAllowed) {
+        // Trial: physically cap the call at the remaining allowance (plus a
+        // minute of grace to wrap up) so one long call can't blow past it.
+        maxDurationSeconds = Math.min(3600, Math.max(120, usage.remainingMinutes * 60 + 60));
+        planLine = `PLAN: free trial — ${usage.remainingMinutes} voice minute${usage.remainingMinutes === 1 ? "" : "s"} left${
+          typeof plan.trialDaysLeft === "number" ? ` and ${plan.trialDaysLeft} day${plan.trialDaysLeft === 1 ? "" : "s"} of trial` : ""
+        }. If the caller asks about their plan or minutes, use these numbers. If minutes are nearly out, wrap up efficiently; upgrading happens at pheme.deals → Settings.`;
+      } else if (usage.remainingMinutes <= Math.max(15, usage.includedMinutes * 0.2)) {
+        const rate = (plan.overageCentsPerMin / 100).toFixed(2);
+        planLine =
+          usage.remainingMinutes > 0
+            ? `PLAN NOTE: ${usage.remainingMinutes} included voice minutes left this cycle; after that, minutes bill at $${rate}/min. Only mention this if the caller asks about their plan, minutes, or billing.`
+            : `PLAN NOTE: this cycle's included minutes are used up — additional talk time bills at $${rate}/min on the next invoice. Only mention this if the caller asks about their plan, minutes, or billing.`;
+      }
     }
   }
   const who = [
@@ -268,6 +286,8 @@ async function buildOverrides(
     );
   }
 
+  if (planLine) lines.push(planLine);
+
   lines.push(
     digest
       ? `People you already know on this account:\n${digest}`
@@ -294,5 +314,9 @@ async function buildOverrides(
     : ["Hey, it's Pheme — what are we working on?"];
   const firstMessage = greetings[new Date().getMinutes() % greetings.length];
 
-  return { variableValues: { memoryDigest: lines.join("\n\n") }, firstMessage };
+  return {
+    variableValues: { memoryDigest: lines.join("\n\n") },
+    firstMessage,
+    ...(maxDurationSeconds ? { maxDurationSeconds } : {}),
+  };
 }
