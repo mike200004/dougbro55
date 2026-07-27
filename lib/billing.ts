@@ -84,12 +84,12 @@ export function stripeConfigured(): boolean {
 // ---------------------------------------------------------------------------
 
 async function stripeReq(
-  method: "GET" | "POST",
+  method: "GET" | "POST" | "DELETE",
   path: string,
   params?: Record<string, string>,
 ): Promise<Record<string, unknown>> {
   const qs = params ? new URLSearchParams(params).toString() : "";
-  const url = `https://api.stripe.com/v1${path}${method === "GET" && qs ? `?${qs}` : ""}`;
+  const url = `https://api.stripe.com/v1${path}${method !== "POST" && qs ? `?${qs}` : ""}`;
   const res = await fetch(url, {
     method,
     headers: {
@@ -464,7 +464,9 @@ export async function cancelStripeSubscriptionNow(sub: Subscription | null): Pro
   if (!stripeConfigured() || !sub?.stripe_subscription_id) return;
   try {
     if (sub.stripe_customer_id) await invoicePendingItems(sub.stripe_customer_id);
-    await stripeReq("POST", `/subscriptions/${sub.stripe_subscription_id}/cancel`, {});
+    // Canceling a subscription is a DELETE in Stripe's API (there is no
+    // /cancel sub-path for subscriptions — that's subscription *schedules*).
+    await stripeReq("DELETE", `/subscriptions/${sub.stripe_subscription_id}`);
   } catch (err) {
     // A already-canceled sub 404s here — that's fine; anything else gets logged
     // but never blocks account deletion.
