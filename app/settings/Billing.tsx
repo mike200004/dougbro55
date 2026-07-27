@@ -42,9 +42,10 @@ const label: Record<string, string> = {
 };
 
 export default function Billing(props: Props) {
-  const [interval, setInterval] = useState<"month" | "year">("month");
+  const [billingInterval, setBillingInterval] = useState<"month" | "year">("month");
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [switched, setSwitched] = useState<string | null>(null);
 
   const isPaid = props.plan === "solo" || props.plan === "pro" || props.plan === "brokerage";
   const pct =
@@ -55,12 +56,22 @@ export default function Billing(props: Props) {
   async function checkout(plan: PlanKey) {
     setBusy(plan);
     setErr(null);
-    const res = await startCheckoutAction(plan, interval);
-    if (res.ok && res.url) window.location.assign(res.url);
-    else {
-      setErr(res.ok ? "Could not start checkout." : res.error);
-      setBusy(null);
+    setSwitched(null);
+    const res = await startCheckoutAction(plan, billingInterval);
+    if (res.ok && res.url) {
+      window.location.assign(res.url); // new subscription → Stripe Checkout
+      return;
     }
+    if (res.ok) {
+      // Existing subscription switched in place — no redirect, just confirm
+      // and refresh so the webhook-synced plan shows up.
+      setSwitched(res.message ?? "Plan updated.");
+      setBusy(null);
+      setTimeout(() => window.location.reload(), 3500);
+      return;
+    }
+    setErr(res.error);
+    setBusy(null);
   }
 
   async function portal() {
@@ -155,20 +166,25 @@ export default function Billing(props: Props) {
       {/* Plan picker — hidden on beta (Stripe not configured) */}
       {props.stripeReady && props.isOwner && (
         <>
+          {switched && (
+            <div className="notice noticeOk" style={{ marginBottom: 14 }} role="status">
+              {switched}
+            </div>
+          )}
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
             <span className="rowSub">Billing</span>
-            <div className="btnRow" role="tablist" aria-label="Billing interval">
+            <div className="btnRow" aria-label="Billing interval">
               <button
-                className={`btn ${interval === "month" ? "btnPrimary" : ""}`}
-                aria-pressed={interval === "month"}
-                onClick={() => setInterval("month")}
+                className={`btn ${billingInterval === "month" ? "btnPrimary" : ""}`}
+                aria-pressed={billingInterval === "month"}
+                onClick={() => setBillingInterval("month")}
               >
                 Monthly
               </button>
               <button
-                className={`btn ${interval === "year" ? "btnPrimary" : ""}`}
-                aria-pressed={interval === "year"}
-                onClick={() => setInterval("year")}
+                className={`btn ${billingInterval === "year" ? "btnPrimary" : ""}`}
+                aria-pressed={billingInterval === "year"}
+                onClick={() => setBillingInterval("year")}
               >
                 Annual · 2 months free
               </button>
@@ -177,7 +193,7 @@ export default function Billing(props: Props) {
 
           <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))" }}>
             {props.plans.map((p) => {
-              const price = interval === "year" ? p.annualUsd : p.monthlyUsd;
+              const price = billingInterval === "year" ? p.annualUsd : p.monthlyUsd;
               const current = props.plan === p.key && props.active;
               return (
                 <div key={p.key} className="card" style={current ? { borderColor: "var(--ink, #1f2937)", borderWidth: 2 } : undefined}>
@@ -186,7 +202,7 @@ export default function Billing(props: Props) {
                   <div style={{ fontSize: 30, fontWeight: 700 }}>
                     ${price}
                     <span style={{ fontSize: 14, fontWeight: 400 }} className="rowSub">
-                      /{interval === "year" ? "yr" : "mo"}
+                      /{billingInterval === "year" ? "yr" : "mo"}
                     </span>
                   </div>
                   <ul style={{ listStyle: "none", padding: 0, margin: "12px 0", fontSize: 14, lineHeight: 1.9 }}>

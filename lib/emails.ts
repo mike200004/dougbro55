@@ -76,7 +76,7 @@ export async function sendInviteEmail(
   const agency = opts.agencyName ? ` at ${escapeHtml(opts.agencyName)}` : "";
   const res = await sendEmail({
     to,
-    subject: `${opts.inviterName || "You've been"} invited you to Pheme`,
+    subject: opts.inviterName ? `${opts.inviterName} invited you to Pheme` : "You've been invited to Pheme",
     html: layout(
       "You're invited to Pheme",
       `<p>${inviter}${agency} invited you to help run their real-estate paperwork on Pheme —

@@ -105,12 +105,16 @@ export async function POST(req: NextRequest) {
           obj.metadata?.account_id || (obj.customer ? await accountForCustomer(obj.customer) : null);
         if (!accountId) break;
         const row = subscriptionRow(accountId, obj as Parameters<typeof subscriptionRow>[1]);
+        if (event.type === "customer.subscription.deleted") row.status = "canceled";
+        await upsertSubscription(row);
         if (event.type === "customer.subscription.deleted") {
-          row.status = "canceled";
-          // No renewal invoice will ever sweep pending overage items — bill
-          // them now, then tell the owner.
+          // Deferred work is queued only AFTER the DB write succeeds — if the
+          // upsert throws we return 500 and Stripe retries, and queuing first
+          // would send the cancellation email twice.
           const customer = obj.customer;
           defer(async () => {
+            // No renewal invoice will ever sweep pending overage items — bill
+            // them now, then tell the owner.
             if (customer) await invoicePendingItems(customer);
             const profile = await getProfile(accountId).catch(() => null);
             if (profile?.email) {
@@ -119,7 +123,6 @@ export async function POST(req: NextRequest) {
           });
           await logActivity(accountId, "billing", "Subscription canceled.");
         }
-        await upsertSubscription(row);
         break;
       }
 
