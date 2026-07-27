@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { createSupabaseBrowser } from "@/lib/supabase/client";
+import { requestPasswordResetAction } from "@/app/actions";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -14,13 +14,12 @@ export default function ForgotPasswordPage() {
     e.preventDefault();
     setBusy(true);
     setError(null);
-    const supabase = createSupabaseBrowser();
-    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-      redirectTo: `${window.location.origin}/reset-password`,
-    });
+    // The action always succeeds (no account enumeration) and sends the email
+    // through Resend when the address matches an account.
+    const res = await requestPasswordResetAction(email.trim());
     setBusy(false);
-    if (error) {
-      setError(error.message);
+    if (!res.ok) {
+      setError(res.error);
       return;
     }
     setSent(true);
@@ -34,7 +33,7 @@ export default function ForgotPasswordPage() {
         <div className="card" style={{ marginTop: 20 }}>
           <p>
             Check <strong>{email}</strong> — if an account exists for that address, a reset
-            link is on its way.
+            link is on its way. It’s single-use and expires in about an hour.
           </p>
         </div>
       ) : (

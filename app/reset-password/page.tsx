@@ -1,20 +1,39 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
 
-export default function ResetPasswordPage() {
+function ResetPassword() {
+  const params = useSearchParams();
   const [ready, setReady] = useState(false);
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // The recovery link establishes a session asynchronously — listen for the
-  // auth event instead of racing a timer, with a generous fallback before we
-  // declare the link dead.
+  // Two link formats both land here:
+  //  1. Our Resend email: ?token_hash=…&type=recovery → verifyOtp (needs no
+  //     redirect allowlist, works regardless of the project's Site URL).
+  //  2. Supabase's own recovery redirect (hash fragment) → onAuthStateChange.
   useEffect(() => {
     const supabase = createSupabaseBrowser();
     let settled = false;
+
+    const tokenHash = params.get("token_hash");
+    if (tokenHash) {
+      supabase.auth.verifyOtp({ token_hash: tokenHash, type: "recovery" }).then(({ error }) => {
+        settled = true;
+        if (error) {
+          setError(
+            "This reset link is invalid or has expired — they're single-use. Request a new one from the sign-in page.",
+          );
+        } else {
+          setReady(true);
+        }
+      });
+      return;
+    }
+
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       if (session && (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN" || event === "INITIAL_SESSION")) {
         settled = true;
@@ -39,7 +58,7 @@ export default function ResetPasswordPage() {
       sub.subscription.unsubscribe();
       clearTimeout(timer);
     };
-  }, []);
+  }, [params]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -59,9 +78,7 @@ export default function ResetPasswordPage() {
     <div className="authWrap">
       <h1 className="pageTitle">Choose a new password</h1>
       <p className="pageSub">You’ll be signed in right after.</p>
-      {!ready && !error && (
-        <p className="muted" style={{ marginTop: 12 }}>Verifying your reset link…</p>
-      )}
+      {!ready && !error && <p className="muted" style={{ marginTop: 12 }}>Verifying your reset link…</p>}
       {error && !ready ? (
         <div className="notice" style={{ marginTop: 20 }}>{error}</div>
       ) : (
@@ -87,5 +104,13 @@ export default function ResetPasswordPage() {
         </form>
       )}
     </div>
+  );
+}
+
+export default function ResetPasswordPage() {
+  return (
+    <Suspense>
+      <ResetPassword />
+    </Suspense>
   );
 }

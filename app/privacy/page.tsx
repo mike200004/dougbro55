@@ -4,7 +4,7 @@ export default function PrivacyPage() {
   return (
     <div className="stack" style={{ maxWidth: 760, margin: "0 auto" }}>
       <h1 className="pageTitle">Privacy Policy</h1>
-      <p className="muted">Last updated: June 9, 2026</p>
+      <p className="muted">Last updated: July 27, 2026</p>
       <div className="card" style={{ lineHeight: 1.7 }}>
         <h3 className="cardTitle">What we collect</h3>
         <p style={{ marginBottom: 14 }}>
@@ -24,8 +24,10 @@ export default function PrivacyPage() {
         <p style={{ marginBottom: 14 }}>
           We rely on a small set of processors to operate: Supabase (database & file
           storage), Vercel (hosting), OpenAI (AI processing of your instructions and
-          documents), Vapi (voice calls), Twilio (calls & SMS), and Resend (email). Each
-          receives only what it needs to do its job.
+          documents), Vapi (voice calls), Twilio (calls & SMS), Resend (email), and Stripe
+          (subscription billing and payments). Each receives only what it needs to do its job —
+          Stripe, for example, handles your payment details directly; we never see or store your
+          full card number.
         </p>
         <h3 className="cardTitle">Retention & deletion</h3>
         <p style={{ marginBottom: 14 }}>

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
+import { PLANS, TRIAL_DAYS } from "@/lib/billing";
 
 const STEPS = [
   {
@@ -38,7 +39,7 @@ const FAQ = [
   },
   {
     q: "What does it cost?",
-    a: "Pheme is free to use right now — every feature included, no credit card required.",
+    a: `Plans start at $${PLANS[0].monthlyUsd}/month and are priced around AI voice-assistant minutes — the one part that's genuinely expensive to run. Documents, uploads, e-signatures, and texts are unlimited on every plan. Every account starts with a ${TRIAL_DAYS}-day free trial, no credit card required.`,
   },
   {
     q: "Can my assistant use it too?",
@@ -161,16 +162,42 @@ export default function Landing() {
         ))}
       </div>
 
-      <h2 className="sectionHeading">Free to get started</h2>
-      <div className="card" style={{ maxWidth: 560, margin: "0 auto", textAlign: "center", padding: 32 }}>
-        <div className="cardKicker">No credit card</div>
-        <div className="cardTitle" style={{ fontSize: 40, margin: "10px 0 4px" }}>Free</div>
-        <p className="cardBody" style={{ marginBottom: 18 }}>
-          Every feature included — unlimited documents, form uploads, e-signatures, client
-          memory, and your team. Just sign up and start filing.
-        </p>
-        <Link href="/signup" className="btn btnPrimary btnLg">Claim your account</Link>
+      <h2 className="sectionHeading">Pricing that follows your talk time</h2>
+      <p className="pageSub" style={{ textAlign: "center", maxWidth: 600, margin: "0 auto 22px" }}>
+        Documents, uploads, e-signatures, and texts are unlimited on every plan — you choose
+        based on how much you’ll talk to your AI assistant. Free for {TRIAL_DAYS} days.
+      </p>
+      <div
+        className="grid"
+        style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", maxWidth: 900, margin: "0 auto", width: "100%" }}
+      >
+        {PLANS.map((p) => (
+          <div
+            key={p.key}
+            className="card"
+            style={p.key === "pro" ? { borderColor: "var(--ink, #1f2937)", borderWidth: 2 } : undefined}
+          >
+            {p.key === "pro" && <div className="cardKicker">Most popular</div>}
+            <div className="cardTitle" style={{ fontSize: 22, margin: "4px 0 2px" }}>{p.name}</div>
+            <div className="rowSub" style={{ marginBottom: 8 }}>{p.blurb}</div>
+            <div style={{ fontSize: 32, fontWeight: 700 }}>
+              ${p.monthlyUsd}
+              <span style={{ fontSize: 14, fontWeight: 400 }} className="rowSub">/mo</span>
+            </div>
+            <ul style={{ listStyle: "none", padding: 0, margin: "12px 0 16px", fontSize: 14, lineHeight: 1.95 }}>
+              <li>✓ {p.minutes.toLocaleString()} voice minutes / mo</li>
+              <li>✓ {p.seats} team seat{p.seats === 1 ? "" : "s"}</li>
+              <li>✓ Unlimited documents &amp; e-sign</li>
+            </ul>
+            <Link href="/signup" className={`btn ${p.key === "pro" ? "btnPrimary" : ""}`} style={{ width: "100%", textAlign: "center" }}>
+              Start free
+            </Link>
+          </div>
+        ))}
       </div>
+      <p className="muted" style={{ textAlign: "center", marginTop: 14 }}>
+        See the full breakdown on the <Link href="/pricing">pricing page</Link>.
+      </p>
 
       <h2 className="sectionHeading">Questions, answered</h2>
       <div style={{ maxWidth: 720, margin: "0 auto" }}>

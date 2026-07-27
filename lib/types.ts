@@ -96,6 +96,40 @@ export interface SignatureRequest {
   signed_at: string | null;
 }
 
+export type PlanKey = "solo" | "pro" | "brokerage";
+
+export interface Subscription {
+  account_id: string;
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
+  status: string;
+  plan: PlanKey | null;
+  price_id: string | null;
+  billing_interval: "month" | "year" | null;
+  minutes_included: number;
+  overage_cents_per_min: number;
+  seats: number;
+  cancel_at_period_end: boolean;
+  current_period_start: string | null;
+  current_period_end: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CallUsageRecord {
+  id: string;
+  account_id: string;
+  vapi_call_id: string | null;
+  caller_phone: string | null;
+  started_at: string | null;
+  ended_at: string | null;
+  seconds: number;
+  overage_minutes: number;
+  overage_billed: boolean;
+  summary: string | null;
+  created_at: string;
+}
+
 export interface DocumentRecord {
   id: string;
   account_id: string;

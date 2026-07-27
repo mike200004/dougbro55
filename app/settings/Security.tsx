@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
-import { deleteAccountAction } from "@/app/actions";
+import { deleteAccountAction, requestPasswordResetAction } from "@/app/actions";
 
 export default function Security({ email, isOwner }: { email: string; isOwner: boolean }) {
   const [sent, setSent] = useState(false);
@@ -30,12 +30,9 @@ export default function Security({ email, isOwner }: { email: string; isOwner: b
             onClick={async () => {
               setPwBusy(true);
               setPwErr(null);
-              const supabase = createSupabaseBrowser();
-              const { error } = await supabase.auth.resetPasswordForEmail(email, {
-                redirectTo: `${window.location.origin}/reset-password`,
-              });
+              const res = await requestPasswordResetAction(email);
               setPwBusy(false);
-              if (error) setPwErr(error.message);
+              if (!res.ok) setPwErr(res.error);
               else setSent(true);
             }}
           >

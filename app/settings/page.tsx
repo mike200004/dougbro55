@@ -2,9 +2,11 @@ import Link from "next/link";
 import { getProfile, listMembers } from "@/lib/db";
 import { requireAccount } from "@/lib/auth";
 import { saveProfileAction } from "@/app/actions";
+import { getPlanState, getVoiceUsage, stripeConfigured, PLANS } from "@/lib/billing";
 import type { AgentProfile } from "@/lib/types";
 import Team from "./Team";
 import Security from "./Security";
+import Billing from "./Billing";
 import SubmitButton from "@/app/SubmitButton";
 
 export const dynamic = "force-dynamic";
@@ -22,15 +24,20 @@ const FIELDS: { key: keyof AgentProfile; label: string; hint?: string }[] = [
 export default async function SettingsPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ saved?: string }>;
+  searchParams?: Promise<{ saved?: string; billing?: string }>;
 }) {
   const account = await requireAccount();
   const { accountId, role } = account;
-  const saved = (await searchParams)?.saved;
-  const [profile, members] = await Promise.all([
+  const params = await searchParams;
+  const saved = params?.saved;
+  const billingNotice =
+    params?.billing === "success" ? "success" : params?.billing === "canceled" ? "canceled" : params?.billing === "inactive" ? "inactive" : undefined;
+  const [profile, members, planState] = await Promise.all([
     getProfile(accountId),
     listMembers(accountId),
+    getPlanState(accountId),
   ]);
+  const usage = await getVoiceUsage(accountId, planState);
   const isOwner = role === "owner";
 
   return (
@@ -75,6 +82,32 @@ export default async function SettingsPage({
           </div>
         )}
       </section>
+
+      <Billing
+        plan={planState.plan}
+        active={planState.active}
+        trialDaysLeft={planState.trialDaysLeft}
+        cancelAtPeriodEnd={planState.cancelAtPeriodEnd}
+        periodEnd={planState.periodEnd}
+        usedMinutes={usage.usedMinutes}
+        includedMinutes={Number.isFinite(planState.minutesIncluded) ? planState.minutesIncluded : null}
+        overageAllowed={planState.overageAllowed}
+        overageCentsPerMin={planState.overageCentsPerMin}
+        hasCustomer={!!planState.sub?.stripe_customer_id}
+        isOwner={isOwner}
+        stripeReady={stripeConfigured()}
+        plans={PLANS.map((p) => ({
+          key: p.key,
+          name: p.name,
+          monthlyUsd: p.monthlyUsd,
+          annualUsd: p.annualUsd,
+          minutes: p.minutes,
+          seats: p.seats,
+          overageCentsPerMin: p.overageCentsPerMin,
+          blurb: p.blurb,
+        }))}
+        notice={billingNotice}
+      />
 
       <Team
         members={members.map((m) => ({

@@ -38,10 +38,17 @@ export default function TermsPage() {
           to contact them, no attempting to access other accounts’ data, and no abuse of the
           service’s messaging features.
         </p>
-        <h3 className="cardTitle">Cost</h3>
+        <h3 className="cardTitle">Plans, billing &amp; voice minutes</h3>
         <p style={{ marginBottom: 14 }}>
-          Pheme is currently free to use. If we introduce paid plans in the future, we’ll
-          give you notice and the terms before anything is charged.
+          New accounts start with a free trial. Paid plans are billed monthly or annually in
+          advance through our payment processor, Stripe; by subscribing you authorize recurring
+          charges to your payment method until you cancel. Each plan includes a monthly
+          allowance of AI voice-assistant minutes. Minutes used beyond that allowance are billed
+          as metered overage at your plan’s per-minute rate and appear on your next invoice.
+          Documents, uploads, e-signatures, and texts are unlimited. You can upgrade, downgrade,
+          or cancel anytime from Settings; upgrades take effect immediately, and downgrades and
+          cancellations take effect at the end of the current billing period. Fees already paid
+          are non-refundable except where required by law.
         </p>
         <h3 className="cardTitle">Disclaimers</h3>
         <p style={{ marginBottom: 14 }}>

@@ -10,7 +10,7 @@ interface Member {
   name: string;
   phone: string | null;
   email: string | null;
-  status: "active" | "invited";
+  status: "active" | "invited" | "pending";
 }
 
 export default function Team({
