@@ -2,7 +2,7 @@ import { createSignatureRequest, getDocument } from "@/lib/db";
 import { isDocType, missingRequired, userFields } from "@/lib/templates";
 import type { DocType } from "@/lib/types";
 import { makeSignToken } from "@/lib/share";
-import { sendEmail, emailConfigured } from "@/lib/email";
+import { sendEmail, emailConfigured, escapeHtml } from "@/lib/email";
 import { sendSms } from "@/lib/twilio";
 import { normalizePhone } from "@/lib/phone";
 import { logActivity } from "@/lib/activity";
@@ -73,7 +73,7 @@ export async function requestSignature(
       ? sendEmail({
           to: email,
           subject: `Signature requested: ${docName}`,
-          html: `<p>${who ? `${who}, you` : "You"}'ve been asked to sign “${docName}”.</p><p><a href="${url}">Review &amp; sign it here</a> — it takes under a minute.</p><p>— Pheme</p>`,
+          html: `<p>${who ? `${escapeHtml(who)}, you` : "You"}'ve been asked to sign “${escapeHtml(docName)}”.</p><p><a href="${escapeHtml(url)}">Review &amp; sign it here</a> — it takes under a minute.</p><p>— Pheme</p>`,
         })
       : Promise.resolve(null),
     phone

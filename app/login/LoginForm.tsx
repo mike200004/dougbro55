@@ -32,12 +32,12 @@ export default function LoginForm() {
   return (
     <form onSubmit={submit} className="authCard">
       <div className="field">
-        <label className="label">Email</label>
-        <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+        <label className="label" htmlFor="login-email">Email</label>
+        <input id="login-email" className="input" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
       </div>
       <div className="field">
-        <label className="label">Password</label>
-        <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+        <label className="label" htmlFor="login-password">Password</label>
+        <input id="login-password" className="input" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
       </div>
       {error && <p style={{ color: "var(--danger)", marginBottom: 12 }}>{error}</p>}
       <button type="submit" className="btn btnPrimary" disabled={busy}>

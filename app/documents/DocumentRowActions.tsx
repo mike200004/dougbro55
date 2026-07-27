@@ -46,11 +46,19 @@ export default function DocumentRowActions({ docId, archived }: { docId: string;
 
   return (
     <span style={{ position: "relative" }} ref={ref}>
-      <button className="btn" style={{ padding: "6px 12px" }} onClick={() => setOpen((o) => !o)} aria-label="Actions">
+      <button
+        className="btn"
+        style={{ padding: "6px 12px" }}
+        onClick={() => setOpen((o) => !o)}
+        aria-label="Document actions"
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
         ⋯
       </button>
       {open && (
         <span
+          role="menu"
           style={{
             position: "absolute",
             right: 0,
@@ -65,13 +73,14 @@ export default function DocumentRowActions({ docId, archived }: { docId: string;
             minWidth: 160,
           }}
         >
-          <button className="navMobileLink" disabled={busy} onClick={() => run(() => duplicateDocumentAction(docId), false)}>
+          <button role="menuitem" className="navMobileLink" disabled={busy} onClick={() => run(() => duplicateDocumentAction(docId), false)}>
             {busy ? "Working…" : "Duplicate"}
           </button>
-          <button className="navMobileLink" disabled={busy} onClick={() => run(() => archiveDocumentAction(docId, !archived))}>
+          <button role="menuitem" className="navMobileLink" disabled={busy} onClick={() => run(() => archiveDocumentAction(docId, !archived))}>
             {archived ? "Unarchive" : "Archive"}
           </button>
           <button
+            role="menuitem"
             className="navMobileLink"
             style={{ color: "var(--danger)" }}
             disabled={busy}

@@ -26,14 +26,14 @@ export default function Onboarding({ phone, hasDoc, hasTemplate, hasTeam }: Prop
     {
       done: hasDoc,
       label: `Call or text ${phone} and file your first document`,
-      detail: "Say something like “Start a dual agency for 12 Oak St…” — Pheme does the rest.",
+      detail: "Say something like “Start a listing agreement for 12 Oak St…” — Pheme does the rest.",
     },
     {
       done: hasTemplate,
       label: "Upload one of your own forms",
       detail: (
         <>
-          A SmartMLS form, a disclosure, your brokerage’s paperwork — <Link href="/forms/new">upload it once</Link> and fill it forever.
+          Your contract, a disclosure, your brokerage’s paperwork — <Link href="/forms/new">upload it once</Link> and fill it forever, by voice, text, or web.
         </>
       ),
     },

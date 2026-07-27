@@ -34,6 +34,7 @@ export default function NewFormPage() {
   const [stage, setStage] = useState<"pick" | "working" | "review">("pick");
   const [status, setStatus] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
   const [pages, setPages] = useState<RenderedPage[]>([]);
   const [fields, setFields] = useState<PlacedField[]>([]);
   const [dragOver, setDragOver] = useState(false);
@@ -55,6 +56,7 @@ export default function NewFormPage() {
   function pickFile(f: File | null) {
     setFile(f);
     setError(null);
+    setInfo(null);
     if (f && f.size > 20 * 1024 * 1024) {
       setError("That PDF is over 20MB — try a smaller copy.");
       setFile(null);
@@ -70,6 +72,7 @@ export default function NewFormPage() {
       return;
     }
     setError(null);
+    setInfo(null);
     setStage("working");
     try {
       const buf = await file.arrayBuffer();
@@ -102,7 +105,7 @@ export default function NewFormPage() {
       // Flat / scanned → render pages and detect fields with vision.
       setStatus("Rendering pages…");
       if (doc.numPages > 6) {
-        setError(`Heads up — fields are auto-detected on the first 6 pages only (this PDF has ${doc.numPages}).`);
+        setInfo(`Heads up — fields are auto-detected on the first 6 pages only (this PDF has ${doc.numPages}).`);
       }
       const rendered: RenderedPage[] = [];
       const n = Math.min(doc.numPages, 6);
@@ -179,13 +182,15 @@ export default function NewFormPage() {
         <Link href="/" className="backlink">← Dashboard</Link>
         <h1 className="pageTitle" style={{ marginTop: 10 }}>Upload a form</h1>
         <p className="pageSub">
-          Upload any PDF — a SmartMLS form, a brokerage document, a disclosure. If it’s
+          Upload any PDF — your contract, a brokerage document, a disclosure. If it’s
           fillable, Pheme reads its fields automatically. If it’s flat or scanned, Pheme finds
-          the blanks for you to confirm, then saves it as a reusable form.
+          the blanks for you to confirm, then saves it as a reusable form you can fill by
+          voice, text, or web.
         </p>
       </div>
 
       {error && <div className="notice">{error}</div>}
+      {info && <div className="notice noticeInfo" style={{ marginTop: error ? 10 : 0 }}>{info}</div>}
 
       {stage === "working" && (
         <div className="card" style={{ textAlign: "center", padding: 32 }}>
@@ -247,8 +252,8 @@ export default function NewFormPage() {
             />
           </label>
           <div className="field">
-            <label className="label">Form name</label>
-            <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. SmartMLS Listing Agreement" />
+            <label className="label" htmlFor="form-name">Form name</label>
+            <input id="form-name" className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Listing Agreement" />
           </div>
           <button className="btn btnPrimary" onClick={analyze} disabled={!file}>
             Analyze form

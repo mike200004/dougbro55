@@ -49,7 +49,7 @@ export async function runConversation(
       `\n\nPeople you already know on this account (recall and reuse — the moment one is mentioned, ` +
       `say what you remember and offer to reuse it; confirm before filling):\n${digest}`;
   }
-  const draft = await latestDraft(opts.accountId);
+  const draft = await latestDraft(opts.accountId, { createdBy: opts.actorId });
   if (draft) {
     system +=
       `\n\nA document is already in progress on this account. Unless the agent is clearly starting a ` +

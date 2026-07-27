@@ -4,6 +4,22 @@
  */
 const FROM = process.env.EMAIL_FROM || "Pheme <documents@pheme.deals>";
 
+/**
+ * Escape user-controlled text before interpolating it into an outbound email's
+ * HTML. Document titles, recipient names, signer names, and call recaps all
+ * originate from users — without this, markup in those values is delivered as
+ * live HTML in the recipient's inbox (content/link spoofing in a Pheme-branded
+ * email). Always wrap untrusted values; never the static template markup.
+ */
+export function escapeHtml(value: string): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 export interface SendEmailResult {
   ok: boolean;
   id?: string;

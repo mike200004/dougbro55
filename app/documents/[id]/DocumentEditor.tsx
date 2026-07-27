@@ -102,8 +102,9 @@ export default function DocumentEditor({
     <>
       <form action={save} ref={formRef}>
         <div className="field">
-          <label className="label">Document title</label>
+          <label className="label" htmlFor="doc-title">Document title</label>
           <input
+            id="doc-title"
             className="input"
             name="__title"
             defaultValue={title}
@@ -123,11 +124,12 @@ export default function DocumentEditor({
             <div className="formGrid">
               {sec.fields.map((f) => (
                 <div className="field" key={f.key}>
-                  <label className="label">
+                  <label className="label" htmlFor={`f-${f.key}`}>
                     {f.label} {f.required && <span className="req">*</span>}
                   </label>
                   {f.type === "longtext" ? (
                     <textarea
+                      id={`f-${f.key}`}
                       className="textarea"
                       name={f.key}
                       value={vals[f.key] ?? ""}
@@ -136,6 +138,7 @@ export default function DocumentEditor({
                     />
                   ) : f.type === "dropdown" ? (
                     <select
+                      id={`f-${f.key}`}
                       className="input"
                       name={f.key}
                       value={vals[f.key] ?? ""}
@@ -149,6 +152,7 @@ export default function DocumentEditor({
                     </select>
                   ) : f.type === "checkbox" ? (
                     <select
+                      id={`f-${f.key}`}
                       className="input"
                       name={f.key}
                       value={vals[f.key] ?? ""}
@@ -160,6 +164,7 @@ export default function DocumentEditor({
                     </select>
                   ) : (
                     <input
+                      id={`f-${f.key}`}
                       className="input"
                       name={f.key}
                       value={vals[f.key] ?? ""}
@@ -354,8 +359,9 @@ function SendForSignature({
         <div className="card">
           <div className="formGrid">
             <div className="field">
-              <label className="label">Signer’s full name</label>
+              <label className="label" htmlFor="sig-name">Signer’s full name</label>
               <input
+                id="sig-name"
                 className="input"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
@@ -363,8 +369,9 @@ function SendForSignature({
               />
             </div>
             <div className="field">
-              <label className="label">Signer’s email</label>
+              <label className="label" htmlFor="sig-email">Signer’s email</label>
               <input
+                id="sig-email"
                 className="input"
                 type="email"
                 value={email}
@@ -373,8 +380,9 @@ function SendForSignature({
               />
             </div>
             <div className="field">
-              <label className="label">…or mobile number</label>
+              <label className="label" htmlFor="sig-phone">…or mobile number</label>
               <input
+                id="sig-phone"
                 className="input"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
@@ -454,8 +462,9 @@ function SendByText({
         <div className="card">
           <div className="formGrid">
             <div className="field">
-              <label className="label">Recipient name (optional)</label>
+              <label className="label" htmlFor="send-name">Recipient name (optional)</label>
               <input
+                id="send-name"
                 className="input"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
@@ -463,8 +472,9 @@ function SendByText({
               />
             </div>
             <div className="field">
-              <label className="label">Recipient mobile number</label>
+              <label className="label" htmlFor="send-phone">Recipient mobile number</label>
               <input
+                id="send-phone"
                 className="input"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}

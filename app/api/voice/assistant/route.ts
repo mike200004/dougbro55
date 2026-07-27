@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAccountByPhone, buildMemoryDigest, latestDraft, getProfile, listDocuments } from "@/lib/db";
+import { getAccountByPhone, buildMemoryDigest, latestDraft, getProfile, listDocuments, listFormTemplates } from "@/lib/db";
 import { missingRequired, userFields, getTemplate, isDocType } from "@/lib/templates";
 import type { DocType } from "@/lib/types";
 import { normalizePhone } from "@/lib/phone";
+import { verifyVapiSecret } from "@/lib/webhook-auth";
 import { sendSms } from "@/lib/twilio";
-import { sendEmail, emailConfigured } from "@/lib/email";
+import { sendEmail, emailConfigured, escapeHtml } from "@/lib/email";
 import { makeShareToken } from "@/lib/share";
 import { logActivity } from "@/lib/activity";
 import { defer } from "@/lib/defer";
+import { getPlanState, getVoiceUsage, recordCallUsage, planDef } from "@/lib/billing";
+import { sendUsageWarningEmail } from "@/lib/emails";
 
 export const runtime = "nodejs";
 export const maxDuration = 15;
@@ -26,16 +29,19 @@ const ASSISTANT_ID = process.env.VAPI_ASSISTANT_ID || "8e46aebd-e589-4d6f-a614-7
  * failure we return the base assistant with minimal context.
  */
 export async function POST(req: NextRequest) {
-  const secret = process.env.VAPI_SERVER_SECRET;
-  if (secret && req.headers.get("x-vapi-secret") !== secret) {
+  if (!verifyVapiSecret(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   let message: {
     type?: string;
-    call?: { id?: string; customer?: { number?: string } };
+    call?: { id?: string; customer?: { number?: string }; startedAt?: string; endedAt?: string };
     analysis?: { summary?: string };
     summary?: string;
+    durationSeconds?: number;
+    durationMs?: number;
+    startedAt?: string;
+    endedAt?: string;
   } = {};
   try {
     const body = await req.json();
@@ -51,11 +57,52 @@ export async function POST(req: NextRequest) {
   if (message.type === "end-of-call-report") {
     const summary = message.analysis?.summary || message.summary;
     const callId = message.call?.id || "";
-    if (callerPhone && summary && !recapSent.has(callId)) {
+    // Call duration for metering — Vapi sends it a few different ways.
+    const durationSeconds =
+      message.durationSeconds ??
+      (message.durationMs ? Math.round(message.durationMs / 1000) : undefined) ??
+      (() => {
+        const s = message.startedAt || message.call?.startedAt;
+        const e = message.endedAt || message.call?.endedAt;
+        return s && e ? Math.max(0, Math.round((new Date(e).getTime() - new Date(s).getTime()) / 1000)) : 0;
+      })();
+
+    if (callerPhone && !recapSent.has(callId)) {
       if (callId) recapSent.add(callId);
       defer(async () => {
         const actor = await getAccountByPhone(callerPhone);
         if (!actor) return;
+
+        // Meter the call and bill any overage (idempotent on the Vapi call id).
+        if (durationSeconds > 0) {
+          const res = await recordCallUsage({
+            accountId: actor.accountId,
+            vapiCallId: callId || null,
+            callerPhone,
+            seconds: durationSeconds,
+            startedAt: message.startedAt || message.call?.startedAt || null,
+            endedAt: message.endedAt || message.call?.endedAt || null,
+            summary: summary || null,
+          });
+          // Warn the owner when this call crossed 80% / 100% of the allowance.
+          if (res.recorded && res.crossed.length && res.usage && res.state) {
+            const profile = await getProfile(actor.accountId).catch(() => null);
+            if (profile?.email && emailConfigured()) {
+              for (const threshold of res.crossed) {
+                await sendUsageWarningEmail(profile.email, {
+                  threshold,
+                  usedMinutes: res.usage.usedMinutes,
+                  includedMinutes: res.usage.includedMinutes,
+                  plan: planDef(res.state.plan === "trial" || res.state.plan === "beta" || res.state.plan === "expired" ? null : res.state.plan)?.name ?? "trial",
+                  overageAllowed: res.state.overageAllowed,
+                  overageCentsPerMin: res.state.overageCentsPerMin,
+                }).catch(() => {});
+              }
+            }
+          }
+        }
+
+        if (!summary) return;
         const recap = summary.length > 300 ? `${summary.slice(0, 297)}…` : summary;
 
         // The quick save: link the document this call touched, so one tap
@@ -75,9 +122,9 @@ export async function POST(req: NextRequest) {
           await sendEmail({
             to: profile.email,
             subject: "Your Pheme call recap",
-            html: `<p>${recap}</p>${
+            html: `<p>${escapeHtml(recap)}</p>${
               recent && link
-                ? `<p>Document from this call: <a href="${link}">${recent.title || "view & download"}</a></p>`
+                ? `<p>Document from this call: <a href="${escapeHtml(link)}">${escapeHtml(recent.title || "view & download")}</a></p>`
                 : ""
             }<p>— Pheme</p>`,
           });
@@ -157,13 +204,42 @@ async function buildOverrides(
     };
   }
 
-  const [digest, draft, profile] = await Promise.all([
+  const [digest, draft, profile, forms, plan] = await Promise.all([
     buildMemoryDigest(actor.accountId).catch(() => ""),
-    latestDraft(actor.accountId).catch(() => null),
+    latestDraft(actor.accountId, { createdBy: actor.memberId }).catch(() => null),
     getProfile(actor.accountId).catch(() => null),
+    listFormTemplates(actor.accountId).catch(() => []),
+    getPlanState(actor.accountId).catch(() => null),
   ]);
 
   const firstName = (actor.name || profile?.agent_name || "").trim().split(/\s+/)[0] || "";
+
+  // Cost gate: AI voice calls are the expensive feature, so this is where we
+  // stop them. A fully-inactive plan (trial elapsed with no subscription, or a
+  // canceled/unpaid one) — or a trial that has burned its included minutes with
+  // no overage allowance — gets a short "you need a plan" message and an
+  // instruction to end the call immediately, instead of a 40-minute session.
+  if (plan) {
+    let blocked = !plan.active;
+    if (!blocked && !plan.overageAllowed && Number.isFinite(plan.minutesIncluded)) {
+      const usage = await getVoiceUsage(actor.accountId, plan).catch(() => null);
+      if (usage && usage.remainingMinutes <= 0) blocked = true;
+    }
+    if (blocked) {
+      const line =
+        plan.plan === "expired"
+          ? `Hi ${firstName || "there"} — your Pheme trial has wrapped up, so the phone assistant is paused. Pick a plan at pheme.deals and I'll be right back. Talk soon!`
+          : plan.plan === "trial"
+            ? `Hi ${firstName || "there"} — you've used up your trial's voice minutes, so I have to pause here. Choose a plan at pheme.deals to keep going. Talk soon!`
+            : `Hi ${firstName || "there"} — this account's Pheme plan isn't active right now, so the phone assistant is paused. Sort it out at pheme.deals and I'll be right here. Talk soon!`;
+      return {
+        variableValues: {
+          memoryDigest: `${baseContext()}\n\nACCOUNT PLAN: INACTIVE. Deliver your first message, then call the end_call tool immediately. Do not use any other tool, take any request, or continue the conversation — the account must add or renew a plan at pheme.deals first.`,
+        },
+        firstMessage: line,
+      };
+    }
+  }
   const who = [
     `You're speaking with ${actor.name || "the agent"}`,
     actor.role === "assistant" ? "(an assistant acting on the agent's account)" : "",
@@ -185,7 +261,7 @@ async function buildOverrides(
         missing.length === 0
           ? " All required fields are filled — it just hasn't been filed."
           : ` Still missing: ${labels.join(", ")}.`;
-      detail = ` It's a ${getTemplate(draft.type).name}.` + detail;
+      detail = ` It's a ${getTemplate(draft.type)?.name ?? draft.type}.` + detail;
     }
     lines.push(
       `DOCUMENT IN PROGRESS: "${title}" (document_id: ${draft.id}).${detail} If the caller wants to keep going on it, continue THIS document — set fields and finalize on this id; do not create a new one unless they clearly want a different document.`,
@@ -197,6 +273,17 @@ async function buildOverrides(
       ? `People you already know on this account:\n${digest}`
       : "No saved clients yet — this is a fresh book of business.",
   );
+
+  // Forms the caller has uploaded — so when they name one ("let's do my
+  // listing agreement"), you already know it exists and can start it with
+  // create_document(template_name) without a lookup first.
+  if (forms.length) {
+    lines.push(
+      `Forms this agent has uploaded and can fill by name (use create_document with template_name): ${forms
+        .map((f) => `"${f.name}"`)
+        .join(", ")}.`,
+    );
+  }
 
   const greetings = firstName
     ? [

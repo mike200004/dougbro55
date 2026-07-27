@@ -15,7 +15,10 @@ import {
   duplicateDocument,
   getDocument,
   getFormTemplate,
+  getMember,
+  getProfile,
   insertMember,
+  listMembers,
   removeMember,
   renameFormTemplate,
   saveProfile,
@@ -34,15 +37,28 @@ import { sendSms } from "@/lib/twilio";
 import { uploadTemplateFile } from "@/lib/storage";
 import { detectAcroFields } from "@/lib/pdf/fill";
 import { getTemplate, missingRequired } from "@/lib/templates";
-import type { AgentProfile, ContactRole, DocType } from "@/lib/types";
+import {
+  createCheckoutSession,
+  createPortalSession,
+  getPlanState,
+  getSubscription,
+  planDef,
+} from "@/lib/billing";
+import { generateAuthLink } from "@/lib/auth-links";
+import {
+  sendInviteEmail,
+  sendPasswordResetEmail,
+  sendWelcomeEmail,
+} from "@/lib/emails";
+import { defer } from "@/lib/defer";
+import type { AgentProfile, ContactRole, DocType, PlanKey } from "@/lib/types";
 
 const SEND_SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://pheme.deals";
 
-const SITE_URL =
-  process.env.NEXT_PUBLIC_SITE_URL || "https://pheme.deals";
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024; // 20 MB — matches the storage bucket limit
 
 type ActionResult =
-  | { ok: true; message?: string; sign_url?: string; delivered?: boolean }
+  | { ok: true; message?: string; sign_url?: string; delivered?: boolean; url?: string }
   | { ok: false; error: string };
 
 // ---------------------------------------------------------------------------
@@ -111,12 +127,19 @@ export async function createAccountAction(input: {
       name: input.agent_name ?? "",
       phone,
       email,
-      status: "active",
+      // Private beta: new accounts start pending; an admin flips status to
+      // 'active' in Supabase to grant access.
+      status: "pending",
     });
   } catch (e) {
     await sb.auth.admin.deleteUser(uid);
     return { ok: false, error: e instanceof Error ? e.message : "Could not create membership." };
   }
+
+  // Welcome email (best-effort, after the response).
+  defer(async () => {
+    await sendWelcomeEmail(email, input.agent_name ?? "").catch(() => {});
+  });
 
   return { ok: true };
 }
@@ -138,20 +161,30 @@ export async function inviteAssistantAction(input: {
   if (!email) return { ok: false, error: "Email is required." };
   if (!phone) return { ok: false, error: "A valid mobile number is required." };
 
+  // Seat limit: the plan sets how many logins an account may have (owner + N).
+  const plan = await getPlanState(account.accountId);
+  const members = await listMembers(account.accountId);
+  if (Number.isFinite(plan.seats) && members.length >= plan.seats) {
+    const planName = plan.plan === "trial" ? "the free trial" : `the ${planDef(plan.plan as PlanKey)?.name ?? "current"} plan`;
+    return {
+      ok: false,
+      error: `${planName} includes ${plan.seats} seat${plan.seats === 1 ? "" : "s"} and they're all used. Upgrade in Settings → Plan & billing to add more.`,
+    };
+  }
+
   const sb = admin();
   const { data: existing } = await sb.from("account_members").select("id").eq("phone", phone).maybeSingle();
   if (existing) return { ok: false, error: "That phone number is already registered to someone." };
 
-  const { data: invited, error: inviteErr } = await sb.auth.admin.inviteUserByEmail(email, {
-    redirectTo: `${SITE_URL}/accept-invite`,
-  });
-  if (inviteErr || !invited.user) {
-    return { ok: false, error: inviteErr?.message || "Could not send the invite." };
+  // Mint an invite link and deliver it through Resend (production sender).
+  const invite = await generateAuthLink("invite", email, "/accept-invite");
+  if (!invite) {
+    return { ok: false, error: "Could not create the invite — that email may already be in use." };
   }
 
   try {
     await insertMember({
-      id: invited.user.id,
+      id: invite.userId,
       account_id: account.accountId,
       role: "assistant",
       name: input.name ?? "",
@@ -160,12 +193,20 @@ export async function inviteAssistantAction(input: {
       status: "invited",
     });
   } catch (e) {
-    await sb.auth.admin.deleteUser(invited.user.id);
+    await sb.auth.admin.deleteUser(invite.userId);
     return { ok: false, error: e instanceof Error ? e.message : "Could not add the assistant." };
   }
 
+  const profile = await getProfile(account.accountId).catch(() => null);
+  const sent = await sendInviteEmail(email, {
+    inviterName: account.name || profile?.agent_name || "Your agent",
+    agencyName: profile?.broker_agency_name,
+    link: invite.link,
+  });
   revalidatePath("/settings");
-  return { ok: true };
+  return sent
+    ? { ok: true }
+    : { ok: true, message: "Assistant added, but the invite email didn't send — resend it from the team list." };
 }
 
 export async function removeAssistantAction(memberId: string): Promise<ActionResult> {
@@ -203,22 +244,21 @@ export async function resendInviteAction(memberId: string): Promise<ActionResult
   if (!member || member.role !== "assistant" || member.status !== "invited" || !member.email) {
     return { ok: false, error: "That invite can't be resent." };
   }
-  // Invite links can only be issued for a fresh auth user — recreate it.
+  // Invite links can only be issued for a fresh auth user — recreate it, then
+  // re-deliver through Resend.
   const sb = admin();
   await sb.auth.admin.deleteUser(member.id);
-  const { data: invited, error: inviteErr } = await sb.auth.admin.inviteUserByEmail(member.email, {
-    redirectTo: `${SITE_URL}/accept-invite`,
-  });
-  if (inviteErr || !invited.user) {
+  const invite = await generateAuthLink("invite", member.email, "/accept-invite");
+  if (!invite) {
     // The old member row now points at a deleted auth user — remove it so the
     // owner can re-invite cleanly.
     await removeMember(account.accountId, member.id);
     revalidatePath("/settings");
-    return { ok: false, error: inviteErr?.message || "Could not resend — please invite them again." };
+    return { ok: false, error: "Could not resend — please invite them again." };
   }
   await removeMember(account.accountId, member.id);
   await insertMember({
-    id: invited.user.id,
+    id: invite.userId,
     account_id: account.accountId,
     role: "assistant",
     name: member.name ?? "",
@@ -226,14 +266,89 @@ export async function resendInviteAction(memberId: string): Promise<ActionResult
     email: member.email,
     status: "invited",
   });
+  const profile = await getProfile(account.accountId).catch(() => null);
+  await sendInviteEmail(member.email, {
+    inviterName: account.name || profile?.agent_name || "Your agent",
+    agencyName: profile?.broker_agency_name,
+    link: invite.link,
+  });
   revalidatePath("/settings");
   return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Password reset — delivered via Resend (no dependency on Supabase SMTP or
+// redirect allowlist; the reset page verifies the token_hash directly).
+// ---------------------------------------------------------------------------
+
+export async function requestPasswordResetAction(email: string): Promise<ActionResult> {
+  const clean = email.trim().toLowerCase();
+  // Rate-limit per IP + per address; always return the same message either way
+  // (never reveal whether an account exists).
+  const ip = ((await headers()).get("x-forwarded-for") || "unknown").split(",")[0].trim();
+  const ok = { ok: true as const, message: "If an account exists for that address, a reset link is on its way." };
+  if (!/.+@.+\..+/.test(clean)) return ok;
+  if (!rateLimit(`pwreset:${ip}`, 10, 60 * 60_000) || !rateLimit(`pwreset:${clean}`, 4, 60 * 60_000)) {
+    return ok; // silently drop — no signal to an attacker
+  }
+  const link = await generateAuthLink("recovery", clean, "/reset-password");
+  if (link) {
+    defer(async () => {
+      await sendPasswordResetEmail(clean, link.link).catch(() => {});
+    });
+  }
+  return ok;
+}
+
+// ---------------------------------------------------------------------------
+// Billing — Stripe checkout + customer portal.
+// ---------------------------------------------------------------------------
+
+export async function startCheckoutAction(
+  plan: PlanKey,
+  interval: "month" | "year",
+): Promise<ActionResult> {
+  const account = await requireAccount();
+  if (account.role !== "owner") return { ok: false, error: "Only the account owner can manage billing." };
+  try {
+    const existing = await getSubscription(account.accountId);
+    const url = await createCheckoutSession({
+      accountId: account.accountId,
+      email: account.email || "",
+      plan,
+      interval,
+      existingCustomerId: existing?.stripe_customer_id ?? null,
+    });
+    return { ok: true, url };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Could not start checkout." };
+  }
+}
+
+export async function openBillingPortalAction(): Promise<ActionResult> {
+  const account = await requireAccount();
+  if (account.role !== "owner") return { ok: false, error: "Only the account owner can manage billing." };
+  const sub = await getSubscription(account.accountId);
+  if (!sub?.stripe_customer_id) return { ok: false, error: "No billing account yet — start a plan first." };
+  try {
+    const url = await createPortalSession(sub.stripe_customer_id);
+    return { ok: true, url };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Could not open billing portal." };
+  }
 }
 
 /** Called after an invited assistant sets their password (now signed in). */
 export async function acceptInviteAction(): Promise<void> {
   const user = await getSessionUser();
-  if (user) await setMemberStatus(user.userId, "active");
+  if (!user) return;
+  // Only a genuinely invited assistant may activate through this path. A
+  // pending (beta-unapproved) owner must NOT be able to self-activate and
+  // bypass the private-beta gate by invoking this action directly.
+  const member = await getMember(user.userId);
+  if (member?.role === "assistant" && member.status === "invited") {
+    await setMemberStatus(user.userId, "active");
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -298,7 +413,9 @@ export async function createClientAction(formData: FormData) {
 
 export async function newDocumentAction(type: DocType) {
   const { accountId, userId } = await requireAccount();
+  if (!(await getPlanState(accountId)).active) redirect("/settings?billing=inactive");
   const tpl = getTemplate(type);
+  if (!tpl) redirect("/"); // unknown/retired type — nothing to create
   const doc = await createDocument(accountId, {
     type,
     title: `${tpl.shortName} (new)`,
@@ -316,7 +433,7 @@ export async function saveDocumentFieldsAction(docId: string, formData: FormData
     const ft = await getFormTemplate(accountId, doc.template_id);
     valid = (ft?.fields ?? []).map((f) => f.key);
   } else {
-    valid = getTemplate(doc.type as DocType).fields.filter((f) => !f.source).map((f) => f.key);
+    valid = (getTemplate(doc.type)?.fields ?? []).filter((f) => !f.source).map((f) => f.key);
   }
   const fields: Record<string, string> = {};
   for (const key of valid) fields[key] = String(formData.get(key) ?? "");
@@ -335,6 +452,8 @@ export async function uploadFormAction(
   const file = formData.get("file") as File | null;
   if (!file || file.size === 0) return { ok: false, error: "Choose a PDF to upload." };
   if (file.type && !/pdf/i.test(file.type)) return { ok: false, error: "Please upload a PDF." };
+  // Bound memory/CPU before parsing — don't hand an oversized PDF to pdf-lib.
+  if (file.size > MAX_UPLOAD_BYTES) return { ok: false, error: "That PDF is too large (max 20 MB)." };
 
   const bytes = Buffer.from(await file.arrayBuffer());
   let acroFields;
@@ -371,6 +490,10 @@ export async function saveOverlayTemplateAction(input: {
   const { accountId, userId } = await requireAccount();
   if (!input.pdfBase64) return { ok: false, error: "Missing the PDF." };
   if (!input.fields?.length) return { ok: false, error: "Add at least one field." };
+  // base64 inflates ~33%; cap the decoded size to match the upload limit.
+  if (input.pdfBase64.length > MAX_UPLOAD_BYTES * 1.4) {
+    return { ok: false, error: "That PDF is too large (max 20 MB)." };
+  }
 
   const bytes = Buffer.from(input.pdfBase64, "base64");
   const storagePath = `${accountId}/${randomUUID()}.pdf`;
@@ -393,6 +516,7 @@ export async function saveOverlayTemplateAction(input: {
 
 export async function startFromTemplateAction(templateId: string) {
   const { accountId, userId } = await requireAccount();
+  if (!(await getPlanState(accountId)).active) redirect("/settings?billing=inactive");
   const ft = await getFormTemplate(accountId, templateId);
   if (!ft) return;
   const doc = await createDocument(accountId, {
@@ -418,7 +542,7 @@ export async function sendDocumentAction(
   const to = normalizePhone(toPhone);
   if (!to) return { ok: false, error: "Enter a valid recipient phone number." };
 
-  const docName = doc.template_id ? doc.title || "document" : getTemplate(doc.type as DocType).name;
+  const docName = doc.template_id ? doc.title || "document" : getTemplate(doc.type)?.name || doc.title || "document";
   const link = `${SEND_SITE_URL}/api/share/${makeShareToken(docId)}`;
   const who = recipientName?.trim();
   const body = `${who ? who + ", " : ""}here is your ${docName}: ${link}`;

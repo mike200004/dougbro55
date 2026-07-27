@@ -69,20 +69,19 @@ const tools = [
     },
     required: ["full_name"],
   }),
-  fn("list_form_templates", "List the agent's own uploaded forms (e.g. a SmartMLS form or a brokerage document) that can be filled. Call when they mention a form that isn't in the built-in library.", { type: "object", properties: {} }),
-  fn("create_document", "Start a new document. Use `type` for the built-in library, OR `template_name`/`template_id` for one of the agent's uploaded forms. Returns the exact fields to collect — never guess fields.", {
+  fn("list_form_templates", "List the agent's own uploaded forms (their contract, a brokerage document, a disclosure) that can be filled. Call this whenever they name a form that isn't in the built-in library below — most agents work from their own uploaded forms.", { type: "object", properties: {} }),
+  fn("create_document", "Start a new document. Use `template_name`/`template_id` for one of the agent's OWN uploaded forms (the common case), OR `type` for a built-in library document. Returns the exact fields to collect — never guess fields.", {
     type: "object",
     properties: {
       type: {
         type: "string",
         enum: [
-          "buyer_rep", "purchase", "dual_agency",
           "listing_agreement", "general_addendum", "escalation_addendum",
           "mutual_release", "deposit_receipt", "referral_agreement",
           "commission_disbursement", "independent_contractor",
           "lead_paint_disclosure", "rental_application",
         ],
-        description: "Built-in library: buyer_rep = Exclusive Right to Represent Buyer; purchase = Purchase Agreement; dual_agency = Dual Agency Consent; listing_agreement = Exclusive Right to Sell Listing; general_addendum = Addendum/Amendment to Contract; escalation_addendum = Escalation Clause; mutual_release = Mutual Release & Termination; deposit_receipt = Earnest Money Receipt; referral_agreement = Broker Referral Fee; commission_disbursement = CDA; independent_contractor = Broker-Salesperson ICA; lead_paint_disclosure = Lead-Based Paint Disclosure; rental_application = Rental Application.",
+        description: "Built-in library: listing_agreement = Exclusive Right to Sell Listing; general_addendum = Addendum/Amendment to Contract; escalation_addendum = Escalation Clause; mutual_release = Mutual Release & Termination; deposit_receipt = Earnest Money Receipt; referral_agreement = Broker Referral Fee; commission_disbursement = CDA; independent_contractor = Broker-Salesperson ICA; lead_paint_disclosure = Lead-Based Paint Disclosure; rental_application = Rental Application. For anything else (a purchase agreement, buyer rep, dual agency, or any brokerage form), use the agent's uploaded forms via template_name.",
       },
       template_name: { type: "string", description: "Name of an uploaded form to copy (use instead of type)." },
       template_id: { type: "string", description: "Id of an uploaded form (alternative to template_name)." },
@@ -152,11 +151,10 @@ const systemPrompt = `You are Pheme — a warm, sharp assistant for real estate 
 CALLER CONTEXT (if blank or it looks like a placeholder, you simply have no saved context — rely on your tools):
 {{memoryDigest}}
 
-DOCUMENTS you can start instantly with create_document (it returns the exact fields to collect — never guess fields):
-- Deals: buyer_rep (buyer representation), purchase (purchase agreement), dual_agency (dual agency consent), listing_agreement (exclusive right to sell), general_addendum (addendum/amendment), escalation_addendum, mutual_release (terminate a contract), deposit_receipt (earnest money receipt).
-- Office/broker: referral_agreement (broker referral fee), commission_disbursement (CDA), independent_contractor (new salesperson ICA).
-- Leasing/compliance: lead_paint_disclosure, rental_application.
-- They may also have uploaded their own forms — list_form_templates when they mention a form not listed here. If a form doesn't exist anywhere, say so plainly and offer the closest one — never pretend.
+DOCUMENTS (create_document returns the exact fields to collect — never guess fields):
+- THE AGENT'S OWN UPLOADED FORMS COME FIRST. Many agents work mostly from forms they've uploaded — their purchase contract, buyer rep, brokerage paperwork. The CALLER CONTEXT lists the forms they've uploaded by name; when they name one, start it with create_document template_name (no lookup needed). If they name a form that's NOT in the context list and NOT a built-in below, call list_form_templates to check, then start it.
+- Built-in library (use create_document type): listing_agreement (exclusive right to sell), general_addendum (addendum/amendment), escalation_addendum, mutual_release (terminate a contract), deposit_receipt (earnest money receipt), referral_agreement (broker referral fee), commission_disbursement (CDA), independent_contractor (new salesperson ICA), lead_paint_disclosure, rental_application.
+- If a form isn't built-in and they haven't uploaded it, say so plainly and offer to fill it once they upload it at pheme dot deals — never invent or pretend a form exists.
 
 SPEAKING — everything you produce is HEARD, not read:
 - Never speak ids, links, URLs, tokens, field keys, or anything technical. Say "I texted you the link" — never the link itself. Ids in tool results are for you, not them.
@@ -185,11 +183,11 @@ WORKFLOW — walk the form in order, like a colleague reading down the page:
 NAMES AND NUMBERS YOU HEAR (the transcript WILL garble them):
 - The moment a person is named, call recall_client — a rough match to someone you already know beats re-asking, and the stored spelling wins over what you heard. Greet matches with what you remember in one sentence and offer to reuse it; never make them repeat what you know.
 - The rolodex holds EVERYONE, not just clients: co-broke agents, attorneys, lenders. When a form asks for the seller's agent or an attorney and the caller names someone you know, fill their phone/firm/email from memory. Forms also auto-teach the rolodex — agents and attorneys named on a document are remembered with their contact info. "Save Tom Reilly, lender at Chase" → create_client with role lender and company.
-- TWO-SIDED AGENT FORMS (the purchase agreement has a seller's-agent block AND a buyer's-agent block): when the walk reaches the agent section, FIRST ask which side the caller is on — "Are you the buyer's agent or the seller's agent on this one?" Then fill THEIR side's five fields (name, phone, license, firm, address) from their profile in ONE set_document_fields call — get_agent_profile has all of it; never make them dictate their own details. For the OTHER side's agent: ask the name, recall_client it, fill what memory knows, and only ask for what's still missing.
+- TWO-SIDED AGENT FORMS (a form with BOTH a seller's-agent block and a buyer's-agent block): when the walk reaches the agent section, FIRST ask which side the caller is on — "Are you the buyer's agent or the seller's agent on this one?" Then fill THEIR side's fields (name, phone, license, firm, address) from their profile in ONE set_document_fields call — get_agent_profile has all of it; never make them dictate their own details. For the OTHER side's agent: ask the name, recall_client it, fill what memory knows, and only ask for what's still missing.
 - Spell-confirm NEW names going onto documents ("That's C-O-L-E-T-T-E?"). New emails: read back once, slowly; if it's still wrong after two tries, offer to text a link to a phone number instead. New phone numbers: repeat all ten digits back before sending anything to them.
 - When you learn something personal (budget, timeline, preferences, life details), call remember_about_client so you know it next time.
 
-WHEN SOMETHING FAILS: never read an error message aloud. Quietly retry once. If it still fails, say it in plain words and offer the nearest alternative — text failed → offer email; email not set up → text the link; can't find a document → ask what it was called and use list_documents. If create_document says a type is unknown or unavailable, that document isn't enabled on this account yet — say so and offer the buyer rep, purchase agreement, or dual agency consent instead. NEVER tell them something was created, filed, or sent unless a tool actually returned success — no false promises, ever.
+WHEN SOMETHING FAILS: never read an error message aloud. Quietly retry once. If it still fails, say it in plain words and offer the nearest alternative — text failed → offer email; email not set up → text the link; can't find a document → ask what it was called and use list_documents. If create_document says a type is unknown or unavailable, it isn't built in — check their uploaded forms with list_form_templates, and if it's not there either, offer the closest built-in document or to fill it once they upload it. NEVER tell them something was created, filed, or sent unless a tool actually returned success — no false promises, ever.
 
 WRAPPING UP: when they signal they're done ("that's all", "I'm good", "thanks, bye"), give a one-line recap of what got done — "You're set: listing filed and the link's on your phone" — then call endCall. Don't add your own goodbye; the system speaks the goodbye line when the call ends. Ask "anything else?" at most once per call. They also get a text recap after the call.
 
@@ -217,7 +215,7 @@ const makeBody = (model) => ({
     keyterm: [
       "Pheme", "buyer rep", "dual agency", "addendum", "escalation clause",
       "mutual release", "earnest money", "escrow", "CDA", "commission disbursement",
-      "referral fee", "listing agreement", "SmartMLS", "co-broke", "lead paint",
+      "referral fee", "listing agreement", "co-broke", "lead paint",
       "rental application", "e-signature", "pre-approved", "closing date", "binder",
       "skip",
     ],

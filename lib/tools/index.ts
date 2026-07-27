@@ -21,7 +21,7 @@ import { getTemplate, isDocType, missingRequired, templateList, userFields } fro
 import type { ContactRole, DocumentRecord } from "@/lib/types";
 import { makeShareToken } from "@/lib/share";
 import { sendSms } from "@/lib/twilio";
-import { sendEmail, emailConfigured } from "@/lib/email";
+import { sendEmail, emailConfigured, escapeHtml } from "@/lib/email";
 import { renderDocument } from "@/lib/pdf/fill";
 import { normalizePhone } from "@/lib/phone";
 import type { DocType } from "@/lib/types";
@@ -95,7 +95,7 @@ export const toolSpecs: ToolSpec[] = [
   {
     name: "list_form_templates",
     description:
-      "List the agent's own uploaded form templates (forms they've uploaded, like a SmartMLS form or a brokerage document) that can be filled out. Call this when the agent refers to a form that isn't in the built-in library.",
+      "List the agent's own uploaded forms (their contract, a brokerage document, a disclosure) that can be filled out. Most agents work from their own uploaded forms — call this whenever they name a document that isn't in the built-in library.",
     parameters: { type: "object", properties: {} },
   },
   {
@@ -372,7 +372,9 @@ export async function runTool(
         preferences: client.preferences,
         notes: client.notes,
         co_parties: coParties,
-        deals: (voice ? deals.slice(0, 5) : deals).map((d) => ({ type: d.type, property: d.property, status: d.status, date: d.date })),
+        // Cap deal history so a long-time client with many documents can't blow
+        // up the model context (voice is tightest; web/SMS still bounded).
+        deals: deals.slice(0, voice ? 5 : 25).map((d) => ({ type: d.type, property: d.property, status: d.status, date: d.date })),
       };
     }
 
@@ -401,6 +403,15 @@ export async function runTool(
     }
 
     case "create_document": {
+      // Validate any client_id belongs to THIS account before linking it, so a
+      // hallucinated/foreign id can't create a dangling cross-account reference.
+      let linkedClient = null;
+      if (input.client_id) {
+        linkedClient = await getClient(acc, String(input.client_id));
+        if (!linkedClient) return { error: "That client isn't on your account." };
+      }
+      const clientId = linkedClient?.id ?? null;
+
       // Copy of an uploaded form template?
       const templateRef = (input.template_id as string) || (input.template_name as string);
       if (templateRef) {
@@ -414,7 +425,7 @@ export async function runTool(
           type: "uploaded",
           template_id: tpl.id,
           title: (input.title as string) || `${tpl.name} (new)`,
-          client_id: (input.client_id as string) ?? null,
+          client_id: clientId,
           created_by: ctx.actorId ?? null,
         });
         // Build the schema from the template already in hand — no re-fetch.
@@ -441,17 +452,16 @@ export async function runTool(
       }
 
       const type = input.type as DocType;
-      if (!DOC_TYPES.includes(type)) return { error: `Unknown document type: ${type}` };
       const tpl = getTemplate(type);
+      if (!DOC_TYPES.includes(type) || !tpl) return { error: `Unknown document type: ${type}` };
       let title = (input.title as string) || "";
       if (!title) {
-        const client = input.client_id ? await getClient(acc, String(input.client_id)) : null;
-        title = client ? `${tpl.shortName} — ${client.full_name}` : `${tpl.shortName} (new)`;
+        title = linkedClient ? `${tpl.shortName} — ${linkedClient.full_name}` : `${tpl.shortName} (new)`;
       }
       const doc = await createDocument(acc, {
         type,
         title,
-        client_id: (input.client_id as string) ?? null,
+        client_id: clientId,
         created_by: ctx.actorId ?? null,
       });
       if (voice) {
@@ -599,7 +609,7 @@ export async function runTool(
       }
       const toSelf = !explicitTo;
 
-      const docName = doc.template_id ? doc.title || "document" : getTemplate(doc.type as DocType).name;
+      const docName = doc.template_id ? doc.title || "document" : getTemplate(doc.type)?.name || doc.title || "document";
       const link = `${SITE_URL}/api/share/${makeShareToken(docId)}`;
       const who = (input.recipient_name as string)?.trim();
       const body = `${who ? who + ", " : ""}here is your ${docName}: ${link}`;
@@ -620,7 +630,7 @@ export async function runTool(
           sendEmail({
             to: selfEmail,
             subject: docName,
-            html: `<p>Here’s your ${docName}: <a href="${link}">view &amp; download the PDF</a>.</p><p>— Pheme</p>`,
+            html: `<p>Here’s your ${escapeHtml(docName)}: <a href="${escapeHtml(link)}">view &amp; download the PDF</a>.</p><p>— Pheme</p>`,
           }),
         );
       }
@@ -654,14 +664,20 @@ export async function runTool(
       if (!/.+@.+\..+/.test(to)) {
         return { ok: false, message: "What email address should I send it to?" };
       }
-      const { bytes, filename } = await renderDocument(doc);
-      const docName = doc.template_id ? doc.title || "your document" : getTemplate(doc.type as DocType).name;
+      let rendered;
+      try {
+        rendered = await renderDocument(doc);
+      } catch {
+        return { ok: false, message: "That form has been retired and can't be generated anymore." };
+      }
+      const { bytes, filename } = rendered;
+      const docName = doc.template_id ? doc.title || "your document" : getTemplate(doc.type)?.name || doc.title || "your document";
       const link = `${SITE_URL}/api/share/${makeShareToken(docId)}`;
       const who = (input.recipient_name as string)?.trim();
       const sent = await sendEmail({
         to,
         subject: `${docName}${who ? ` for ${who}` : ""}`,
-        html: `<p>${who ? `${who}, here` : "Here"}'s your ${docName}, attached as a PDF.</p><p>You can also <a href="${link}">view it online</a>.</p><p>— Pheme</p>`,
+        html: `<p>${who ? `${escapeHtml(who)}, here` : "Here"}'s your ${escapeHtml(docName)}, attached as a PDF.</p><p>You can also <a href="${escapeHtml(link)}">view it online</a>.</p><p>— Pheme</p>`,
         attachment: { filename: `${filename}.pdf`, contentBase64: Buffer.from(bytes).toString("base64") },
       });
       if (!sent.ok) {

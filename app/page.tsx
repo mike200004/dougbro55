@@ -1,5 +1,8 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import {
+  countClients,
+  countDocuments,
   getProfile,
   listClients,
   listDocuments,
@@ -9,7 +12,7 @@ import {
   memberNames,
 } from "@/lib/db";
 import { listActivity } from "@/lib/activity";
-import { templateCategories, templateList, getTemplate } from "@/lib/templates";
+import { templateCategories, templateList, docTypeLabel } from "@/lib/templates";
 import { getAccount } from "@/lib/auth";
 import { newDocumentAction, startFromTemplateAction } from "./actions";
 import AddClient from "./AddClient";
@@ -34,27 +37,36 @@ export default async function Home({
 }) {
   const account = await getAccount();
   if (!account) return <Landing />;
+  if (account.status !== "active") redirect("/pending");
   const { accountId } = account;
   const uploaded = (await searchParams)?.uploaded;
-  const [profile, clients, documents, names, forms, members, sigs, activity] =
+
+  const monthStart = new Date();
+  monthStart.setDate(1);
+  monthStart.setHours(0, 0, 0, 0);
+
+  // Render only what the dashboard shows (bounded lists); stat tiles use count
+  // queries so the page doesn't load a tenant's whole history on every login.
+  const [profile, clients, documents, names, forms, members, sigs, activity, clientCount, filedThisMonth] =
     await Promise.all([
       getProfile(accountId),
-      listClients(accountId),
-      listDocuments(accountId),
+      listClients(accountId, { limit: 6 }),
+      listDocuments(accountId, { limit: 8 }),
       memberNames(accountId),
       listFormTemplates(accountId),
       listMembers(accountId),
       listSignatureRequests(accountId),
       listActivity(accountId, 8),
+      countClients(accountId),
+      countDocuments(accountId, { status: "completed", archived: false, updatedSince: monthStart.toISOString() }),
     ]);
 
-  const monthStart = new Date();
-  monthStart.setDate(1);
-  monthStart.setHours(0, 0, 0, 0);
-  const filedThisMonth = documents.filter(
-    (d) => d.status === "completed" && new Date(d.updated_at) >= monthStart,
-  ).length;
-  const awaitingSig = sigs.filter((s) => s.status === "pending").length;
+  // Count distinct documents awaiting signature, not raw request rows — a
+  // document can have several pending requests, and the Documents list shows
+  // one "Awaiting signature" badge per document, so this keeps the two in sync.
+  const awaitingSig = new Set(
+    sigs.filter((s) => s.status === "pending").map((s) => s.document_id),
+  ).size;
 
   return (
     <div className="stack">
@@ -77,7 +89,7 @@ export default async function Home({
       <section className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
         {[
           { n: filedThisMonth, label: "Filed this month" },
-          { n: clients.length, label: "Clients remembered" },
+          { n: clientCount, label: "Clients remembered" },
           { n: forms.length, label: "Forms uploaded" },
           { n: awaitingSig, label: "Awaiting signature" },
         ].map((s) => (
@@ -108,7 +120,7 @@ export default async function Home({
             <div className="cardKicker">Upload</div>
             <div className="cardTitle" style={{ fontSize: 19 }}>+ Upload your own form</div>
             <div className="cardBody">
-              SmartMLS forms, brokerage paperwork, disclosures — bring the documents you
+              Your contracts, brokerage paperwork, disclosures — bring the documents you
               actually use.
             </div>
           </Link>
@@ -157,8 +169,8 @@ export default async function Home({
           <p className="muted">No documents yet. Start one above or ask the assistant.</p>
         ) : (
           documents.slice(0, 8).map((doc) => {
-            const kind = doc.type === "uploaded" ? "Uploaded form" : getTemplate(doc.type).shortName;
-            const fallback = doc.type === "uploaded" ? "Uploaded form" : getTemplate(doc.type).name;
+            const kind = doc.type === "uploaded" ? "Uploaded form" : docTypeLabel(doc.type);
+            const fallback = kind;
             return (
               <Link key={doc.id} href={`/documents/${doc.id}`} className="row" style={{ textDecoration: "none" }}>
                 <div>

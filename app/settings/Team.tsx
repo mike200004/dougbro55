@@ -10,7 +10,7 @@ interface Member {
   name: string;
   phone: string | null;
   email: string | null;
-  status: "active" | "invited";
+  status: "active" | "invited" | "pending";
 }
 
 export default function Team({
@@ -130,16 +130,16 @@ export default function Team({
           <form onSubmit={invite} className="card">
             <div className="formGrid">
               <div className="field">
-                <label className="label">Assistant name</label>
-                <input className="input" name="name" required />
+                <label className="label" htmlFor="invite-name">Assistant name</label>
+                <input id="invite-name" className="input" name="name" required />
               </div>
               <div className="field">
-                <label className="label">Email (for the invite)</label>
-                <input className="input" name="email" type="email" required />
+                <label className="label" htmlFor="invite-email">Email (for the invite)</label>
+                <input id="invite-email" className="input" name="email" type="email" required />
               </div>
               <div className="field">
-                <label className="label">Their mobile number</label>
-                <input className="input" name="phone" placeholder="(203) 555-0123" required />
+                <label className="label" htmlFor="invite-phone">Their mobile number</label>
+                <input id="invite-phone" className="input" name="phone" type="tel" placeholder="(203) 555-0123" required />
               </div>
             </div>
             {error && <p style={{ color: "var(--danger)", marginBottom: 12 }}>{error}</p>}

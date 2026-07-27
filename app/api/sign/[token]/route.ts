@@ -4,9 +4,10 @@ import {
   getDocumentById,
   getProfile,
   getSignatureRequestById,
+  transitionSignatureRequest,
   updateSignatureRequest,
 } from "@/lib/db";
-import { renderDocument, stampSignaturePage } from "@/lib/pdf/fill";
+import { renderDocument, stampSignaturePage, TemplateRetiredError } from "@/lib/pdf/fill";
 import { uploadSignedFile } from "@/lib/storage";
 import { sendEmail, emailConfigured } from "@/lib/email";
 import { sendSms } from "@/lib/twilio";
@@ -43,14 +44,21 @@ export async function GET(
   const { reqRow, doc } = resolved;
 
   if (req.nextUrl.searchParams.get("pdf")) {
-    const { bytes, filename } = await renderDocument(doc);
-    return new NextResponse(Buffer.from(bytes), {
-      headers: {
-        "Content-Type": "application/pdf",
-        "Content-Disposition": `inline; filename="${filename}.pdf"`,
-        "Cache-Control": "no-store",
-      },
-    });
+    try {
+      const { bytes, filename } = await renderDocument(doc);
+      return new NextResponse(Buffer.from(bytes), {
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `inline; filename="${filename}.pdf"`,
+          "Cache-Control": "no-store",
+        },
+      });
+    } catch (err) {
+      if (err instanceof TemplateRetiredError) {
+        return NextResponse.json({ error: "This form has been retired and can no longer be signed." }, { status: 410 });
+      }
+      throw err;
+    }
   }
 
   return NextResponse.json({
@@ -85,13 +93,24 @@ export async function POST(
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
+  // Bound the embedded signature image: it's decoded, drawn into the PDF, and
+  // base64-attached to outgoing emails. A multi-MB data URL would amplify
+  // memory on every recipient. A normal canvas signature is well under this.
+  if (body.signaturePng && body.signaturePng.length > 350_000) {
+    return NextResponse.json({ error: "That signature image is too large — try drawing it again." }, { status: 413 });
+  }
+
   const agentProfile = await getProfile(doc.account_id);
 
   if (body.action === "decline") {
-    await updateSignatureRequest(reqRow.id, {
+    // Atomic: only the caller that flips pending→declined proceeds.
+    const claimed = await transitionSignatureRequest(reqRow.id, "pending", {
       status: "declined",
       audit: { ...reqRow.audit, declined_at: new Date().toISOString(), ip: clientIp(req) },
     });
+    if (!claimed) {
+      return NextResponse.json({ error: "This request is no longer pending." }, { status: 409 });
+    }
     await logActivity(doc.account_id, "signature_declined", `${reqRow.signer_name || "The signer"} declined to sign “${doc.title}”.`);
     if (agentProfile?.email && emailConfigured()) {
       await sendEmail({
@@ -109,25 +128,15 @@ export async function POST(
     return NextResponse.json({ error: "You must agree to sign electronically." }, { status: 400 });
   }
 
-  // Render the current document of record and append the certificate page.
-  const { bytes } = await renderDocument(doc);
   const signedAtIso = new Date().toISOString();
   const ip = clientIp(req);
   const userAgent = req.headers.get("user-agent") || "unknown";
-  const signedBytes = await stampSignaturePage(bytes, {
-    signerName: name,
-    signerContact: reqRow.signer_email || reqRow.signer_phone || "—",
-    documentTitle: doc.title || "Document",
-    signedAtIso,
-    ip,
-    userAgent,
-    consentText: CONSENT_TEXT,
-    signaturePngDataUrl: body.signaturePng || null,
-  });
-
   const signedPath = `${doc.account_id}/signed/${reqRow.id}.pdf`;
-  await uploadSignedFile(signedPath, signedBytes);
-  await updateSignatureRequest(reqRow.id, {
+
+  // Claim the request atomically BEFORE doing irreversible work. If a concurrent
+  // request already executed (or declined) this one, the conditional update
+  // matches zero rows and we bail — so only one executed PDF is ever produced.
+  const claimed = await transitionSignatureRequest(reqRow.id, "pending", {
     status: "signed",
     signer_name: name,
     signed_path: signedPath,
@@ -140,6 +149,33 @@ export async function POST(
       consent_text: CONSENT_TEXT,
     },
   });
+  if (!claimed) {
+    return NextResponse.json({ error: "This request was already completed." }, { status: 409 });
+  }
+
+  // Render the document of record, append the certificate, and store it. If any
+  // of this fails, roll the reservation back to pending so it can be retried.
+  let signedBytes: Uint8Array;
+  try {
+    const { bytes } = await renderDocument(doc);
+    signedBytes = await stampSignaturePage(bytes, {
+      signerName: name,
+      signerContact: reqRow.signer_email || reqRow.signer_phone || "—",
+      documentTitle: doc.title || "Document",
+      signedAtIso,
+      ip,
+      userAgent,
+      consentText: CONSENT_TEXT,
+      signaturePngDataUrl: body.signaturePng || null,
+    });
+    await uploadSignedFile(signedPath, signedBytes);
+  } catch (err) {
+    await updateSignatureRequest(reqRow.id, { status: "pending", signed_path: null, signed_at: null });
+    if (err instanceof TemplateRetiredError) {
+      return NextResponse.json({ error: "This form has been retired and can no longer be signed." }, { status: 410 });
+    }
+    throw err;
+  }
   await logActivity(doc.account_id, "signature_signed", `${name} signed “${doc.title}”.`);
 
   // Deliver copies: signer (email if we have it) + the agent.

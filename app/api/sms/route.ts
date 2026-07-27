@@ -61,13 +61,27 @@ export async function POST(req: NextRequest) {
   });
 
   const authToken = process.env.TWILIO_AUTH_TOKEN;
-  if (authToken && process.env.TWILIO_SKIP_VALIDATION !== "1") {
-    const proto = req.headers.get("x-forwarded-proto") ?? "https";
-    const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
-    const url = `${proto}://${host}/api/sms`;
-    const sig = req.headers.get("x-twilio-signature");
-    if (!validSignature(authToken, sig, url, params)) {
-      return new NextResponse("Invalid signature", { status: 403 });
+  // The skip escape hatch is for local testing only — never honor it in prod,
+  // so a stray env var can't silently disable signature validation.
+  const skipValidation =
+    process.env.NODE_ENV !== "production" && process.env.TWILIO_SKIP_VALIDATION === "1";
+  if (!skipValidation) {
+    // Fail closed, mirroring the Vapi webhook: a production deploy with no auth
+    // token must NOT accept unsigned, spoofable requests — the `From` field is
+    // attacker-controlled and would otherwise let anyone drive the assistant on
+    // any registered account. In dev (no token), requests are allowed through.
+    if (!authToken) {
+      if (process.env.NODE_ENV === "production") {
+        return new NextResponse("Webhook not configured", { status: 503 });
+      }
+    } else {
+      const proto = req.headers.get("x-forwarded-proto") ?? "https";
+      const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
+      const url = `${proto}://${host}/api/sms`;
+      const sig = req.headers.get("x-twilio-signature");
+      if (!validSignature(authToken, sig, url, params)) {
+        return new NextResponse("Invalid signature", { status: 403 });
+      }
     }
   }
 

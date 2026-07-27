@@ -3,6 +3,7 @@ import type {
   AgentProfile,
   Client,
   ContactRole,
+  DocStatus,
   DocumentRecord,
   DocumentType,
   DocType,
@@ -80,29 +81,35 @@ export interface ResolvedActor {
   memberId: string;
   name: string;
   role: "owner" | "assistant";
+  status: "active" | "invited" | "pending";
 }
 
 /** Resolve the account + actor for a logged-in user. */
 export async function getMember(userId: string): Promise<ResolvedActor | null> {
   const { data } = await admin()
     .from("account_members")
-    .select("account_id, name, role")
+    .select("account_id, name, role, status")
     .eq("id", userId)
     .maybeSingle();
   if (!data) return null;
-  return { accountId: data.account_id, memberId: userId, name: data.name, role: data.role };
+  return { accountId: data.account_id, memberId: userId, name: data.name, role: data.role, status: data.status };
 }
 
-/** Resolve the account + actor from a caller's phone (E.164) — owner or assistant. */
+/**
+ * Resolve the account + actor from a caller's phone (E.164) — owner or
+ * assistant. Only ACTIVE members route here: a pending (beta-unapproved) or
+ * not-yet-accepted invited member can't act over voice/SMS.
+ */
 export async function getAccountByPhone(phone: string): Promise<ResolvedActor | null> {
   if (!phone) return null;
   const { data } = await admin()
     .from("account_members")
-    .select("id, account_id, name, role")
+    .select("id, account_id, name, role, status")
     .eq("phone", phone)
+    .eq("status", "active")
     .maybeSingle();
   if (!data) return null;
-  return { accountId: data.account_id, memberId: data.id, name: data.name, role: data.role };
+  return { accountId: data.account_id, memberId: data.id, name: data.name, role: data.role, status: data.status };
 }
 
 export async function listMembers(accountId: string): Promise<Member[]> {
@@ -121,14 +128,19 @@ export async function insertMember(m: {
   name: string;
   phone: string | null;
   email: string | null;
-  status: "active" | "invited";
+  status: "active" | "invited" | "pending";
 }): Promise<void> {
   const { error } = await admin().from("account_members").insert(m);
   if (error) throw new Error(error.message);
 }
 
 export async function setMemberStatus(memberId: string, status: "active" | "invited"): Promise<void> {
-  await admin().from("account_members").update({ status }).eq("id", memberId);
+  let q = admin().from("account_members").update({ status }).eq("id", memberId);
+  // Defense in depth: activation is only ever an invited assistant accepting.
+  // This prevents a pending (beta-unapproved) owner from self-activating even
+  // if a caller forgets to gate it. Admins flip pending→active in the dashboard.
+  if (status === "active") q = q.eq("role", "assistant").eq("status", "invited");
+  await q;
 }
 
 /** Remove an assistant from an account (owner-scoped; never the owner). */
@@ -151,12 +163,16 @@ export async function memberNames(accountId: string): Promise<Record<string, str
 // Clients
 // ---------------------------------------------------------------------------
 
-export async function listClients(accountId: string): Promise<Client[]> {
-  const { data } = await admin()
-    .from("clients")
-    .select("*")
-    .eq("account_id", accountId)
-    .order("created_at", { ascending: false });
+export async function listClients(
+  accountId: string,
+  opts?: { limit?: number; byRecency?: boolean },
+): Promise<Client[]> {
+  let q = admin().from("clients").select("*").eq("account_id", accountId);
+  q = opts?.byRecency
+    ? q.order("last_seen_at", { ascending: false, nullsFirst: false }).order("created_at", { ascending: false })
+    : q.order("created_at", { ascending: false });
+  if (opts?.limit) q = q.limit(opts.limit);
+  const { data } = await q;
   return (data as Client[]) ?? [];
 }
 
@@ -220,16 +236,19 @@ function cleanVal(v: string | undefined | null): string {
 }
 
 // Field keys differ by template: most use buyerName/sellerName/propertyAddress;
-// buyer_rep uses buyerNames/propertyDescription (no seller); the rental
-// application's applicant is the buyer-side party.
+// the rental application's applicant and the referral agreement's client are
+// the buyer-side party; the referral agreement describes the property as an
+// "area" rather than a street address. Keep these in sync with the keys in
+// lib/templates/generated.ts — a name that doesn't match here is never learned
+// or recalled.
 function docBuyer(f?: Record<string, string> | null): string {
-  return cleanVal(f?.buyerName) || cleanVal(f?.buyerNames) || cleanVal(f?.applicantName);
+  return cleanVal(f?.buyerName) || cleanVal(f?.applicantName) || cleanVal(f?.clientName);
 }
 function docSeller(f?: Record<string, string> | null): string {
   return cleanVal(f?.sellerName);
 }
 function docProperty(f?: Record<string, string> | null): string {
-  return cleanVal(f?.propertyAddress) || cleanVal(f?.propertyDescription);
+  return cleanVal(f?.propertyAddress) || cleanVal(f?.propertyOrArea);
 }
 
 /** True if `needle` (e.g. "the Johnsons" / "Johnson") refers to `name`. */
@@ -271,10 +290,13 @@ export async function upsertClientByName(
     phone?: string | null;
     company?: string | null;
   },
+  // Callers that upsert several parties at once (rememberParties) pass the
+  // client list once instead of re-fetching it per party.
+  preloaded?: Client[],
 ): Promise<Client | null> {
   const name = input.name?.trim();
   if (!name) return null;
-  const clients = await listClients(accountId);
+  const clients = preloaded ?? (await listClients(accountId));
   const target = normName(name);
   const tokens = (s: string) => s.split(/[\s,]+/).filter(Boolean);
   const targetToks = tokens(target);
@@ -331,21 +353,48 @@ function surnameStem(name: string): string {
   return (toks[toks.length - 1] || "").replace(/s$/, "");
 }
 
+function firstName(name: string): string {
+  return normName(name).split(/[\s,]+/).filter(Boolean)[0] || "";
+}
+
+/**
+ * With surnames already matched, decide whether the first names refer to the
+ * same person: identical, or one a prefix of the other (Tom/Thomas, Liz/Liza).
+ */
+function firstNameCompatible(a: string, b: string): boolean {
+  const af = firstName(a);
+  const bf = firstName(b);
+  if (!af || !bf) return false;
+  return af === bf || af.startsWith(bf) || bf.startsWith(af);
+}
+
 function roleCompatible(a: Client["role"], b: Client["role"]): boolean {
   return rolesMatch(a, b);
 }
 
 /**
- * Fold same-surname, same-role duplicates into `keep` (e.g. a preferences-only
- * record the assistant created via remember_about_client before the party was
- * on a document). Merges preferences/notes and deletes the extras.
+ * Fold a near-duplicate into `keep` — specifically a skeletal "stub" the
+ * assistant created via remember_about_client (or an early mention) BEFORE the
+ * party was on a document. Merges preferences/notes and deletes the extra row.
+ *
+ * The merge HARD-DELETES the folded row, so it is deliberately conservative:
+ * it only merges (a) an exact same-name, role-compatible record, or (b) a stub
+ * with no contact identity of its own whose first+last name plausibly match.
+ * Two distinct people who merely share a surname (two "Smith" buyers) are never
+ * merged — that would be irreversible data loss.
  */
 async function consolidate(accountId: string, keep: Client): Promise<Client> {
   const stem = surnameStem(keep.full_name);
   if (!stem) return keep;
-  const dups = (await listClients(accountId)).filter(
-    (c) => c.id !== keep.id && surnameStem(c.full_name) === stem && roleCompatible(c.role, keep.role),
-  );
+  const dups = (await listClients(accountId)).filter((c) => {
+    if (c.id === keep.id || !roleCompatible(c.role, keep.role)) return false;
+    // Exact same name + compatible role: treat as the same party (consistent
+    // with upsertClientByName's exact-match behavior).
+    if (normName(c.full_name) === normName(keep.full_name)) return true;
+    // Otherwise only fold a skeletal stub of the same likely person.
+    if (surnameStem(c.full_name) !== stem || !firstNameCompatible(c.full_name, keep.full_name)) return false;
+    return !c.email && !c.phone && !c.company && !c.secondary_name;
+  });
   if (!dups.length) return keep;
   const merged: Partial<Client> = {};
   const prefs = [keep.preferences, ...dups.map((d) => d.preferences)].filter(Boolean).join("; ");
@@ -373,13 +422,18 @@ export async function rememberParties(accountId: string, doc: DocumentRecord): P
   const f = doc.fields || {};
   const buyer = docBuyer(f);
   const seller = docSeller(f);
+  // Load the client book ONCE and reuse it across every party upsert below
+  // (was re-fetching the whole table ~9× per document — the hottest write
+  // path, hit on every set_document_fields). consolidate() still reads fresh
+  // since it deletes and needs current truth.
+  const clients = await listClients(accountId);
   let primary: Client | null = null;
   if (buyer) {
-    const b = await upsertClientByName(accountId, { name: buyer, role: "buyer" });
+    const b = await upsertClientByName(accountId, { name: buyer, role: "buyer" }, clients);
     if (b) primary = await consolidate(accountId, b);
   }
   if (seller) {
-    const s = await upsertClientByName(accountId, { name: seller, role: "seller" });
+    const s = await upsertClientByName(accountId, { name: seller, role: "seller" }, clients);
     if (s) {
       const c = await consolidate(accountId, s);
       if (!primary) primary = c;
@@ -408,7 +462,7 @@ export async function rememberParties(accountId: string, doc: DocumentRecord): P
         phone: p.phone || null,
         email: p.email || null,
         company: p.company || null,
-      });
+      }, clients);
     } catch {
       // pre-0009 schema or bad value — skip this contact, keep the rest
     }
@@ -432,9 +486,11 @@ export interface Dossier {
 /** Everything we remember about a person, found by fuzzy name. */
 export async function getClientDossier(accountId: string, name: string): Promise<Dossier | null> {
   // The docs fetch doesn't depend on which client matches — run both at once.
+  // Docs are bounded to a recent window so a power tenant's full history isn't
+  // loaded on the voice recall path; deal history shows recent deals.
   const [clients, docs] = await Promise.all([
     listClients(accountId),
-    listDocuments(accountId),
+    listDocuments(accountId, { limit: 200 }),
   ]);
   const matches = clients.filter(
     (c) => nameMatches(c.full_name, name) || nameMatches(c.secondary_name, name),
@@ -502,15 +558,15 @@ export async function rememberAboutClient(
  * queries go out in parallel.
  */
 export async function buildMemoryDigest(accountId: string, limit = 12): Promise<string> {
+  // Hot path: runs on every inbound call pickup under a tight timeout. Pull
+  // only the N most-recently-seen clients and a recent window of docs (for
+  // property enrichment) instead of the tenant's entire history.
   const [clients, docs] = await Promise.all([
-    listClients(accountId),
-    listDocuments(accountId),
+    listClients(accountId, { limit, byRecency: true }),
+    listDocuments(accountId, { limit: 50 }),
   ]);
   if (!clients.length) return "";
-  clients.sort((a, b) =>
-    (b.last_seen_at ?? b.created_at).localeCompare(a.last_seen_at ?? a.created_at),
-  );
-  const lines = clients.slice(0, limit).map((c) => {
+  const lines = clients.map((c) => {
     const lastDoc = docs.find(
       (d) =>
         d.client_id === c.id ||
@@ -531,7 +587,7 @@ export async function buildMemoryDigest(accountId: string, limit = 12): Promise<
 
 export async function listDocuments(
   accountId: string,
-  opts?: { includeArchived?: boolean },
+  opts?: { includeArchived?: boolean; limit?: number },
 ): Promise<DocumentRecord[]> {
   let q = admin()
     .from("documents")
@@ -539,8 +595,34 @@ export async function listDocuments(
     .eq("account_id", accountId)
     .order("updated_at", { ascending: false });
   if (!opts?.includeArchived) q = q.eq("archived", false);
+  if (opts?.limit) q = q.limit(opts.limit);
   const { data } = await q;
   return (data as DocumentRecord[]) ?? [];
+}
+
+/** Count documents matching a status (for dashboard stats — no row egress). */
+export async function countDocuments(
+  accountId: string,
+  opts?: { status?: DocStatus; archived?: boolean; updatedSince?: string },
+): Promise<number> {
+  let q = admin()
+    .from("documents")
+    .select("id", { count: "exact", head: true })
+    .eq("account_id", accountId);
+  if (opts?.status) q = q.eq("status", opts.status);
+  if (opts?.archived !== undefined) q = q.eq("archived", opts.archived);
+  if (opts?.updatedSince) q = q.gte("updated_at", opts.updatedSince);
+  const { count } = await q;
+  return count ?? 0;
+}
+
+/** Count an account's clients (dashboard stat). */
+export async function countClients(accountId: string): Promise<number> {
+  const { count } = await admin()
+    .from("clients")
+    .select("id", { count: "exact", head: true })
+    .eq("account_id", accountId);
+  return count ?? 0;
 }
 
 export async function setDocumentArchived(
@@ -594,19 +676,23 @@ export async function getDocument(
  * The most recent still-open draft for an account (within `withinMinutes`).
  * Lets a conversation continue a document across turns instead of orphaning it,
  * since tool-created document ids aren't carried in the text transcript.
+ *
+ * Scoped to `createdBy` (the acting member) when given: on a multi-actor account
+ * (owner + assistants), one person's fresh chat must not be told to continue —
+ * and overwrite — a draft another person left open.
  */
 export async function latestDraft(
   accountId: string,
-  withinMinutes = 180,
+  opts?: { createdBy?: string | null; withinMinutes?: number },
 ): Promise<DocumentRecord | null> {
-  const { data } = await admin()
+  const withinMinutes = opts?.withinMinutes ?? 180;
+  let q = admin()
     .from("documents")
     .select("*")
     .eq("account_id", accountId)
-    .eq("status", "draft")
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .eq("status", "draft");
+  if (opts?.createdBy) q = q.eq("created_by", opts.createdBy);
+  const { data } = await q.order("updated_at", { ascending: false }).limit(1).maybeSingle();
   if (!data) return null;
   const ageMin = (Date.now() - new Date((data as DocumentRecord).updated_at).getTime()) / 60000;
   return ageMin <= withinMinutes ? (data as DocumentRecord) : null;
@@ -793,6 +879,25 @@ export async function updateSignatureRequest(
   patch: Partial<Pick<SignatureRequest, "status" | "signed_path" | "audit" | "signed_at" | "signer_name">>,
 ): Promise<void> {
   await admin().from("signature_requests").update(patch).eq("id", id);
+}
+
+/**
+ * Atomically move a request out of `from` status. Returns true only for the
+ * single caller that wins the transition — so two concurrent signs (or a
+ * sign racing a decline) can't both execute the same request.
+ */
+export async function transitionSignatureRequest(
+  id: string,
+  from: SignatureRequest["status"],
+  patch: Partial<Pick<SignatureRequest, "status" | "signed_path" | "audit" | "signed_at" | "signer_name">>,
+): Promise<boolean> {
+  const { data } = await admin()
+    .from("signature_requests")
+    .update(patch)
+    .eq("id", id)
+    .eq("status", from)
+    .select("id");
+  return Array.isArray(data) && data.length > 0;
 }
 
 export async function listSignatureRequests(

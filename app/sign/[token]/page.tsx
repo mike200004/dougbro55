@@ -16,7 +16,7 @@ export default function SignPage({ params }: { params: Promise<{ token: string }
   const [name, setName] = useState("");
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState<"signed" | "declined" | null>(null);
+  const [done, setDone] = useState<"signed" | "declined" | "canceled" | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawing = useRef(false);
   const hasInk = useRef(false);
@@ -29,7 +29,8 @@ export default function SignPage({ params }: { params: Promise<{ token: string }
         else {
           setInfo(d);
           setName(d.signer_name || "");
-          if (d.status !== "pending") setDone(d.status === "signed" ? "signed" : "declined");
+          if (d.status !== "pending")
+            setDone(d.status === "signed" ? "signed" : d.status === "canceled" ? "canceled" : "declined");
         }
       })
       .catch(() => setError("Couldn't load this signing request."));
@@ -112,6 +113,17 @@ export default function SignPage({ params }: { params: Promise<{ token: string }
       </div>
     );
   }
+  if (done === "canceled") {
+    return (
+      <div className="authWrap" style={{ textAlign: "center" }}>
+        <h1 className="pageTitle">Request canceled</h1>
+        <p className="pageSub">
+          The sender canceled this signature request, so it can no longer be signed. Reach out to
+          them if you were expecting to sign “{info.document_title}”.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="stack" style={{ maxWidth: 760, margin: "0 auto" }}>
@@ -142,10 +154,10 @@ export default function SignPage({ params }: { params: Promise<{ token: string }
 
       <div className="card">
         <div className="field">
-          <label className="label">
+          <label className="label" htmlFor="sign-name">
             Your full legal name <span className="req">*</span>
           </label>
-          <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
+          <input id="sign-name" className="input" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} />
         </div>
 
         <div className="field">

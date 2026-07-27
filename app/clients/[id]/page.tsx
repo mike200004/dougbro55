@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getClient, getClientDossier } from "@/lib/db";
 import { requireAccount } from "@/lib/auth";
-import { getTemplate } from "@/lib/templates";
+import { docTypeLabel } from "@/lib/templates";
 import { updateClientAction } from "@/app/actions";
 import DeleteClientButton from "./DeleteClientButton";
 import SubmitButton from "@/app/SubmitButton";
@@ -40,24 +40,24 @@ export default async function ClientDetailPage({
         <form action={updateClientAction.bind(null, client.id)} className="card">
           <div className="formGrid">
             <div className="field">
-              <label className="label">Full name</label>
-              <input className="input" name="full_name" defaultValue={client.full_name} required />
+              <label className="label" htmlFor="ce-full_name">Full name</label>
+              <input id="ce-full_name" className="input" name="full_name" defaultValue={client.full_name} required />
             </div>
             <div className="field">
-              <label className="label">Co-buyer / co-seller</label>
-              <input className="input" name="secondary_name" defaultValue={client.secondary_name ?? ""} />
+              <label className="label" htmlFor="ce-secondary_name">Co-buyer / co-seller</label>
+              <input id="ce-secondary_name" className="input" name="secondary_name" defaultValue={client.secondary_name ?? ""} />
             </div>
             <div className="field">
-              <label className="label">Email</label>
-              <input className="input" name="email" defaultValue={client.email ?? ""} />
+              <label className="label" htmlFor="ce-email">Email</label>
+              <input id="ce-email" className="input" name="email" type="email" defaultValue={client.email ?? ""} />
             </div>
             <div className="field">
-              <label className="label">Phone</label>
-              <input className="input" name="phone" defaultValue={client.phone ?? ""} />
+              <label className="label" htmlFor="ce-phone">Phone</label>
+              <input id="ce-phone" className="input" name="phone" type="tel" defaultValue={client.phone ?? ""} />
             </div>
             <div className="field">
-              <label className="label">Role</label>
-              <select className="input" name="role" defaultValue={client.role ?? ""}>
+              <label className="label" htmlFor="ce-role">Role</label>
+              <select id="ce-role" className="input" name="role" defaultValue={client.role ?? ""}>
                 <option value="">—</option>
                 <option value="buyer">Buyer</option>
                 <option value="seller">Seller</option>
@@ -70,18 +70,18 @@ export default async function ClientDetailPage({
               </select>
             </div>
             <div className="field">
-              <label className="label">Company / firm</label>
-              <input className="input" name="company" defaultValue={client.company ?? ""} placeholder="Brokerage, law firm…" />
+              <label className="label" htmlFor="ce-company">Company / firm</label>
+              <input id="ce-company" className="input" name="company" defaultValue={client.company ?? ""} placeholder="Brokerage, law firm…" />
             </div>
           </div>
           <div className="field">
-            <label className="label">What Pheme remembers (preferences, budget, timeline…)</label>
-            <textarea className="textarea" name="preferences" defaultValue={client.preferences ?? ""} />
+            <label className="label" htmlFor="ce-preferences">What Pheme remembers (preferences, budget, timeline…)</label>
+            <textarea id="ce-preferences" className="textarea" name="preferences" defaultValue={client.preferences ?? ""} />
             <span className="hint">The assistant recalls this the moment their name comes up.</span>
           </div>
           <div className="field">
-            <label className="label">Private notes</label>
-            <textarea className="textarea" name="notes" defaultValue={client.notes ?? ""} />
+            <label className="label" htmlFor="ce-notes">Private notes</label>
+            <textarea id="ce-notes" className="textarea" name="notes" defaultValue={client.notes ?? ""} />
           </div>
           <div className="btnRow">
             <SubmitButton pendingLabel="Saving…">Save</SubmitButton>
@@ -99,7 +99,7 @@ export default async function ClientDetailPage({
             <Link key={d.id} href={`/documents/${d.id}`} className="row" style={{ textDecoration: "none" }}>
               <div>
                 <div className="rowMain">
-                  {d.type === "uploaded" ? "Uploaded form" : getTemplate(d.type as Parameters<typeof getTemplate>[0]).shortName}
+                  {d.type === "uploaded" ? "Uploaded form" : docTypeLabel(d.type)}
                   {d.property ? ` — ${d.property}` : ""}
                 </div>
                 <div className="rowSub">{new Date(d.date).toLocaleDateString()}</div>
