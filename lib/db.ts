@@ -446,6 +446,10 @@ export async function rememberParties(accountId: string, doc: DocumentRecord): P
 
   // Professionals named on the form. Best-effort: requires migration 0009's
   // widened roles — a constraint error must never break the document flow.
+  // The agent themselves is often named on the form (referring agent and both
+  // agent blocks auto-fill from their own profile) — don't file them in their
+  // own rolodex, where they'd also come back as a recall hit.
+  const self = normName((await getProfile(accountId))?.agent_name);
   const pros: { name: string; role: ContactRole; phone?: string; email?: string; company?: string }[] = [
     { name: cleanVal(f.sellerAgentName), role: "agent", phone: cleanVal(f.sellerAgentPhone), company: cleanVal(f.sellerAgentFirm) },
     { name: cleanVal(f.sellerAttorneyName), role: "attorney", phone: cleanVal(f.sellerAttorneyPhone), email: cleanVal(f.sellerAttorneyEmail) },
@@ -455,6 +459,7 @@ export async function rememberParties(accountId: string, doc: DocumentRecord): P
   ];
   for (const p of pros) {
     if (!p.name) continue;
+    if (self && normName(p.name) === self) continue;
     try {
       await upsertClientByName(accountId, {
         name: p.name,

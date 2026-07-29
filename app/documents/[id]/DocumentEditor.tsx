@@ -427,17 +427,22 @@ function SendByText({
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [link, setLink] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   async function submit() {
     setBusy(true);
     setErr(null);
     setMsg(null);
+    setLink(null);
+    setCopied(false);
     try {
       if (dirty) await saveNow();
       const res = await sendDocumentAction(docId, phone, name);
       if (res.ok) {
         setMsg(`Sent a link to ${phone}.`);
+        if (res.url) setLink(res.url);
         setPhone("");
       } else {
         setErr(res.error);
@@ -484,6 +489,31 @@ function SendByText({
             </div>
           </div>
           {msg && <p style={{ color: "var(--ok)", marginBottom: 10 }}>{msg}</p>}
+          {link && (
+            <div className="notice noticeInfo" style={{ marginBottom: 10 }}>
+              Texts can be delayed or filtered by carriers. Here’s the same link if you’d
+              rather send it yourself:
+              <div className="btnRow" style={{ marginTop: 8, alignItems: "center" }}>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(link);
+                      setCopied(true);
+                    } catch {
+                      setCopied(false);
+                    }
+                  }}
+                >
+                  {copied ? "Copied ✓" : "Copy link"}
+                </button>
+                <a href={link} target="_blank" rel="noreferrer" style={{ fontSize: 13 }}>
+                  Open it ↗
+                </a>
+              </div>
+            </div>
+          )}
           {err && <p style={{ color: "var(--danger)", marginBottom: 10 }}>{err}</p>}
           <div className="btnRow">
             <button
