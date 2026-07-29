@@ -221,7 +221,8 @@ export async function renderDocument(
   doc: DocumentRecord,
   opts?: { ignoreSigned?: boolean },
 ): Promise<{ bytes: Uint8Array; filename: string }> {
-  const safe = (name: string) => (name || "document").replace(/[^a-z0-9]+/gi, "-");
+  const safe = (name: string) =>
+    (name || "document").replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "") || "document";
 
   // Once a document has been signed, the signed PDF (with its certificate
   // page) is the document of record everywhere.
