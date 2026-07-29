@@ -70,20 +70,32 @@ export default function SignPage({ params }: { params: Promise<{ token: string }
   async function submit(action: "sign" | "decline") {
     setBusy(true);
     setError(null);
-    const signaturePng =
-      action === "sign" && hasInk.current ? canvasRef.current!.toDataURL("image/png") : undefined;
-    const res = await fetch(`/api/sign/${token}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action, name, consent, signaturePng }),
-    });
-    const data = await res.json();
-    setBusy(false);
-    if (!res.ok) {
-      setError(data.error || "Something went wrong.");
-      return;
+    try {
+      const signaturePng =
+        action === "sign" && hasInk.current ? canvasRef.current!.toDataURL("image/png") : undefined;
+      const res = await fetch(`/api/sign/${token}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, name, consent, signaturePng }),
+      });
+      // A crashing server can answer with a non-JSON body — don't let that
+      // strand the page in its busy state.
+      let data: { status?: "signed" | "declined" | "canceled"; error?: string } | null = null;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
+      if (!res.ok) {
+        setError(data?.error || "Something went wrong on our end. Please try again in a minute.");
+        return;
+      }
+      if (data?.status) setDone(data.status);
+    } catch {
+      setError("We couldn't reach the server. Check your connection and try again.");
+    } finally {
+      setBusy(false);
     }
-    setDone(data.status);
   }
 
   if (error && !info) {
