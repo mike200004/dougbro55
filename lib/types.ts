@@ -112,6 +112,8 @@ export interface Subscription {
   cancel_at_period_end: boolean;
   current_period_start: string | null;
   current_period_end: string | null;
+  /** Timestamp (seconds, as ISO) of the last Stripe event applied to this row — the out-of-order-webhook guard. */
+  last_event_at: string | null;
   created_at: string;
   updated_at: string;
 }

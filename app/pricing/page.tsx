@@ -99,8 +99,14 @@ export default async function PricingPage() {
 
       <section className="ctaBand">
         <h2 className="ctaTitle">Try it on your next deal.</h2>
-        <p className="ctaSub">Free for {TRIAL_DAYS} days — no credit card to start.</p>
-        <Link href="/signup" className="btn btnLg ctaButton">Create your account</Link>
+        <p className="ctaSub">
+          {account
+            ? "Pick a plan whenever you're ready — your trial keeps running until then."
+            : `Free for ${TRIAL_DAYS} days — no credit card to start.`}
+        </p>
+        <Link href={account ? "/settings" : "/signup"} className="btn btnLg ctaButton">
+          {account ? "Go to your settings" : "Create your account"}
+        </Link>
       </section>
     </div>
   );

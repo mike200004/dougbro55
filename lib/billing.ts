@@ -87,6 +87,7 @@ async function stripeReq(
   method: "GET" | "POST" | "DELETE",
   path: string,
   params?: Record<string, string>,
+  opts?: { idempotencyKey?: string },
 ): Promise<Record<string, unknown>> {
   const qs = params ? new URLSearchParams(params).toString() : "";
   const url = `https://api.stripe.com/v1${path}${method !== "POST" && qs ? `?${qs}` : ""}`;
@@ -95,6 +96,9 @@ async function stripeReq(
     headers: {
       Authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}`,
       ...(method === "POST" ? { "Content-Type": "application/x-www-form-urlencoded" } : {}),
+      // GETs are naturally idempotent (and don't need the header) — only
+      // mutations carry a key, and only when the caller supplied one.
+      ...(method !== "GET" && opts?.idempotencyKey ? { "Idempotency-Key": opts.idempotencyKey } : {}),
     },
     ...(method === "POST" && qs ? { body: qs } : {}),
   });
@@ -104,6 +108,20 @@ async function stripeReq(
     throw new Error(err);
   }
   return data;
+}
+
+// Deterministic, semantically-scoped idempotency keys: a lost-response retry
+// of the SAME logical mutation reuses the same key (Stripe returns the first
+// result instead of creating a duplicate), while a genuinely different
+// operation gets a different key. Must stay <= 255 chars (Stripe's limit).
+function idempotencyKey(...parts: (string | number)[]): string {
+  return parts.map(String).join(":").slice(0, 255);
+}
+
+// Coarse time bucket (current hour) — collapses an immediate retry into the
+// same key without permanently blocking a later, separate attempt.
+function hourBucket(): string {
+  return Math.floor(Date.now() / 3_600_000).toString();
 }
 
 // lookup_key -> price id, cached per warm lambda (survives sandbox→live key
@@ -360,12 +378,23 @@ export async function recordCallUsage(input: {
           timeZone: "America/New_York",
         });
         try {
-          await stripeReq("POST", "/invoiceitems", {
-            customer: state.sub.stripe_customer_id,
-            currency: "usd",
-            amount: String(newOverage * rate),
-            description: `Voice overage — ${newOverage} min beyond plan allowance (call on ${when})`,
-          });
+          // vapi_call_id is the natural idempotency unit — this call's
+          // overage must never bill twice, even if Stripe's response to a
+          // prior attempt was lost (Vercel timeout/network blip) and the
+          // whole recording gets retried. Falls back to the call_usage row id
+          // (still per-call) when there's no vapi_call_id to key on.
+          const key = idempotencyKey("overage", input.vapiCallId || rowId || crypto.randomUUID());
+          await stripeReq(
+            "POST",
+            "/invoiceitems",
+            {
+              customer: state.sub.stripe_customer_id,
+              currency: "usd",
+              amount: String(newOverage * rate),
+              description: `Voice overage — ${newOverage} min beyond plan allowance (call on ${when})`,
+            },
+            { idempotencyKey: key },
+          );
           overageBilledMinutes = newOverage;
           if (rowId) {
             await admin()
@@ -406,7 +435,8 @@ export async function createCheckoutSession(input: {
   interval: "month" | "year";
   existingCustomerId?: string | null;
 }): Promise<string> {
-  const price = await priceIdForLookup(lookupKeyFor(input.plan, input.interval));
+  const lookupKey = lookupKeyFor(input.plan, input.interval);
+  const price = await priceIdForLookup(lookupKey);
   const params: Record<string, string> = {
     mode: "subscription",
     "line_items[0][price]": price,
@@ -420,7 +450,10 @@ export async function createCheckoutSession(input: {
   };
   if (input.existingCustomerId) params.customer = input.existingCustomerId;
   else params.customer_email = input.email;
-  const session = await stripeReq("POST", "/checkout/sessions", params);
+  // Hour-bucketed: an immediate retry (lost response) dedupes, but a
+  // genuinely later checkout attempt for the same plan isn't blocked forever.
+  const key = idempotencyKey("checkout", input.accountId, lookupKey, hourBucket());
+  const session = await stripeReq("POST", "/checkout/sessions", params, { idempotencyKey: key });
   return session.url as string;
 }
 
@@ -447,12 +480,22 @@ export async function changeSubscriptionPlan(
   const current = await fetchStripeSubscription(stripeSubscriptionId);
   const itemId = (current.items?.data?.[0] as { id?: string } | undefined)?.id;
   if (!itemId) throw new Error("Could not read the current subscription item.");
-  await stripeReq("POST", `/subscriptions/${stripeSubscriptionId}`, {
-    "items[0][id]": itemId,
-    "items[0][price]": price,
-    proration_behavior: "always_invoice", // charge/credit the difference now
-    cancel_at_period_end: "false",
-  });
+  // Keyed on subscription + target price, plus the hour: retrying the same
+  // switch dedupes, but switching away and back (Solo→Pro→Solo→Pro) still
+  // applies — without the bucket the third change would replay the first
+  // response and silently no-op inside Stripe's 24h idempotency window.
+  const key = idempotencyKey("planchange", stripeSubscriptionId, price, hourBucket());
+  await stripeReq(
+    "POST",
+    `/subscriptions/${stripeSubscriptionId}`,
+    {
+      "items[0][id]": itemId,
+      "items[0][price]": price,
+      proration_behavior: "always_invoice", // charge/credit the difference now
+      cancel_at_period_end: "false",
+    },
+    { idempotencyKey: key },
+  );
 }
 
 /**
@@ -495,25 +538,96 @@ export function verifyStripeSignature(payload: string, header: string | null): b
   }
 }
 
-export async function upsertSubscription(input: {
-  account_id: string;
-  stripe_customer_id?: string | null;
-  stripe_subscription_id?: string | null;
-  status: string;
-  plan?: PlanKey | null;
-  price_id?: string | null;
-  billing_interval?: "month" | "year" | null;
-  minutes_included?: number;
-  overage_cents_per_min?: number;
-  seats?: number;
-  cancel_at_period_end?: boolean;
-  current_period_start?: string | null;
-  current_period_end?: string | null;
-}): Promise<void> {
-  const { error } = await admin()
-    .from("subscriptions")
-    .upsert({ ...input, updated_at: new Date().toISOString() }, { onConflict: "account_id" });
-  if (error) throw new Error(error.message);
+/**
+ * Thrown by upsertSubscription. `.code` preserves the underlying Postgres
+ * error code (e.g. "23503") so callers can branch on it precisely instead of
+ * parsing message text.
+ */
+class SubscriptionWriteError extends Error {
+  code: string;
+  constructor(message: string, code: string) {
+    super(message);
+    this.name = "SubscriptionWriteError";
+    this.code = code;
+  }
+}
+
+/**
+ * True when upsertSubscription failed on Postgres 23503 — a foreign-key
+ * violation on subscriptions.account_id -> auth.users. The only way to hit
+ * that here is an account that no longer exists: deleteAccountAction cancels
+ * the Stripe subscription and THEN deletes the auth user, which cascades the
+ * subscriptions row away (see 0012_billing.sql), so a customer.subscription.*
+ * webhook landing afterward has nothing left to attach to. That's a no-op,
+ * not a processing failure.
+ */
+export function isMissingAccountError(err: unknown): boolean {
+  return err instanceof SubscriptionWriteError && err.code === "23503";
+}
+
+export async function upsertSubscription(
+  input: {
+    account_id: string;
+    stripe_customer_id?: string | null;
+    stripe_subscription_id?: string | null;
+    status: string;
+    plan?: PlanKey | null;
+    price_id?: string | null;
+    billing_interval?: "month" | "year" | null;
+    minutes_included?: number;
+    overage_cents_per_min?: number;
+    seats?: number;
+    cancel_at_period_end?: boolean;
+    current_period_start?: string | null;
+    current_period_end?: string | null;
+  },
+  opts?: {
+    /** Top-level Stripe event `created` (unix seconds) — the monotonic guard key. */
+    eventCreatedAt?: number | null;
+    /** Bypass the monotonic guard (a terminal state must always be able to land). */
+    force?: boolean;
+  },
+): Promise<void> {
+  const lastEventAt = opts?.eventCreatedAt != null ? new Date(opts.eventCreatedAt * 1000).toISOString() : null;
+  // No event to guard on (e.g. checkout.session.completed, which isn't part
+  // of the subscription's own out-of-order event stream) -> always write,
+  // same as the old unconditional upsert.
+  const force = opts?.force ?? lastEventAt === null;
+  // Atomic INSERT ... ON CONFLICT ... WHERE inside the DB function (see
+  // migration 0014) — race-safe against out-of-order/concurrent webhook
+  // deliveries in a way a JS read-then-write compare could not guarantee.
+  const { error } = await admin().rpc("upsert_subscription_guarded", {
+    p_account_id: input.account_id,
+    p_stripe_customer_id: input.stripe_customer_id ?? null,
+    p_stripe_subscription_id: input.stripe_subscription_id ?? null,
+    p_status: input.status,
+    p_plan: input.plan ?? null,
+    p_price_id: input.price_id ?? null,
+    p_billing_interval: input.billing_interval ?? null,
+    p_minutes_included: input.minutes_included ?? 0,
+    p_overage_cents_per_min: input.overage_cents_per_min ?? 40,
+    p_seats: input.seats ?? 1,
+    p_cancel_at_period_end: input.cancel_at_period_end ?? false,
+    p_current_period_start: input.current_period_start ?? null,
+    p_current_period_end: input.current_period_end ?? null,
+    p_last_event_at: lastEventAt,
+    p_force: force,
+  });
+  if (!error) return;
+  // Migration 0014 not applied yet (42883 = undefined_function, 42703 =
+  // undefined_column). Fall back to the plain upsert so a deploy that lands
+  // before the migration still records subscriptions correctly — it just
+  // doesn't get the out-of-order guard until the migration runs. Remove this
+  // fallback once 0014 is applied everywhere.
+  if (error.code === "42883" || error.code === "PGRST202" || error.code === "42703") {
+    console.warn("[billing] upsert_subscription_guarded missing — apply migration 0014; using unguarded upsert");
+    const plain = await admin()
+      .from("subscriptions")
+      .upsert({ ...input, updated_at: new Date().toISOString() }, { onConflict: "account_id" });
+    if (plain.error) throw new SubscriptionWriteError(plain.error.message, plain.error.code);
+    return;
+  }
+  throw new SubscriptionWriteError(error.message, error.code);
 }
 
 interface StripeSubscription {
@@ -588,13 +702,19 @@ export async function invoicePendingItems(customerId: string): Promise<void> {
       limit: "1",
     });
     if (((pending.data as unknown[]) ?? []).length === 0) return;
-    await stripeReq("POST", "/invoices", {
-      customer: customerId,
-      auto_advance: "true",
-      collection_method: "charge_automatically",
-      pending_invoice_items_behavior: "include",
-      description: "Final voice-minute overage",
-    });
+    const key = idempotencyKey("finalinvoice", customerId, hourBucket());
+    await stripeReq(
+      "POST",
+      "/invoices",
+      {
+        customer: customerId,
+        auto_advance: "true",
+        collection_method: "charge_automatically",
+        pending_invoice_items_behavior: "include",
+        description: "Final voice-minute overage",
+      },
+      { idempotencyKey: key },
+    );
   } catch (err) {
     console.error("[billing] final overage invoice failed", err);
   }

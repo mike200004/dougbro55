@@ -567,7 +567,10 @@ export async function sendDocumentAction(
   const body = `${who ? who + ", " : ""}here is your ${docName}: ${link}`;
   const sent = await sendSms(to, body);
   if (!sent.ok) return { ok: false, error: sent.error || "Could not send the text." };
-  return { ok: true };
+  // Twilio accepting a message is not the carrier delivering it — an unregistered
+  // A2P 10DLC sender gets error 30034 *after* the API returns success. Hand the
+  // link back so the sender can always pass it along another way.
+  return { ok: true, url: link };
 }
 
 export async function setDocumentStatusAction(docId: string, complete: boolean): Promise<ActionResult> {

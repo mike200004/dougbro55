@@ -4,6 +4,7 @@ import {
   accountForCustomer,
   fetchStripeSubscription,
   invoicePendingItems,
+  isMissingAccountError,
   planDef,
   subscriptionRow,
   upsertSubscription,
@@ -55,7 +56,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
-  let event: { id?: string; type: string; data: { object: StripeObject } };
+  let event: { id?: string; type: string; created?: number; data: { object: StripeObject } };
   try {
     event = JSON.parse(payload);
   } catch {
@@ -106,7 +107,22 @@ export async function POST(req: NextRequest) {
         if (!accountId) break;
         const row = subscriptionRow(accountId, obj as Parameters<typeof subscriptionRow>[1]);
         if (event.type === "customer.subscription.deleted") row.status = "canceled";
-        await upsertSubscription(row);
+        try {
+          await upsertSubscription(row, {
+            eventCreatedAt: event.created,
+            // Cancellation is terminal — it must always be able to land, even
+            // in the pathological case where its own snapshot looked stale.
+            force: event.type === "customer.subscription.deleted",
+          });
+        } catch (err) {
+          // deleteAccountAction cancels the Stripe subscription and THEN
+          // deletes the auth user, which cascades the subscriptions row away
+          // (0012_billing.sql). A webhook landing after that has no row left
+          // to attach to — ack it (ledger row stays, so a Stripe retry of the
+          // same event id is a fast duplicate) instead of 500-looping.
+          if (isMissingAccountError(err)) break;
+          throw err;
+        }
         if (event.type === "customer.subscription.deleted") {
           // Deferred work is queued only AFTER the DB write succeeds — if the
           // upsert throws we return 500 and Stripe retries, and queuing first
