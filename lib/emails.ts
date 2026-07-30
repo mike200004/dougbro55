@@ -99,7 +99,7 @@ export async function sendSubscriptionStartedEmail(
       `Welcome to Pheme ${escapeHtml(opts.planName)}`,
       `<p>Your subscription is active. Each month you get
        <strong>${opts.minutes.toLocaleString()} voice-assistant minutes</strong>, plus unlimited
-       documents, uploads, e-signatures, texts, and the web assistant.</p>
+       documents, uploads, e-signatures, and the web assistant.</p>
        <p>Billing renews ${opts.interval === "year" ? "yearly" : "monthly"}; manage your plan,
        payment method, and invoices any time from Settings → Plan &amp; billing.</p>
        ${button(`${SITE}/settings`, "Manage your plan")}`,
@@ -166,8 +166,8 @@ export async function sendUsageWarningEmail(
          on your next invoice. If this happens often, a bigger plan is usually cheaper.</p>
          ${button(`${SITE}/settings`, "Review usage & plans")}`
       : `<p>You've used all <strong>${opts.includedMinutes} trial voice minutes</strong>.
-         The phone assistant is paused until you pick a plan — documents, texts, and the web
-         assistant keep working during your trial.</p>
+         The phone assistant is paused until you pick a plan — documents, e-signatures, and the
+         web assistant keep working during your trial.</p>
          ${button(`${SITE}/pricing`, "Pick a plan")}`
     : `<p>Heads up — you've used <strong>${opts.usedMinutes} of ${opts.includedMinutes}</strong>
        voice minutes this cycle. ${

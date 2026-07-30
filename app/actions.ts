@@ -33,7 +33,6 @@ import { admin } from "@/lib/supabase/admin";
 import { requireAccount, getSessionUser } from "@/lib/auth";
 import { normalizePhone } from "@/lib/phone";
 import { makeShareToken } from "@/lib/share";
-import { sendSms } from "@/lib/twilio";
 import { uploadTemplateFile } from "@/lib/storage";
 import { detectAcroFields } from "@/lib/pdf/fill";
 import { getTemplate, missingRequired } from "@/lib/templates";
@@ -547,30 +546,30 @@ export async function startFromTemplateAction(templateId: string) {
   redirect(`/documents/${doc.id}`);
 }
 
-export async function sendDocumentAction(
+/**
+ * Tap-to-send: Pheme composes the message and share link, and the agent's own
+ * phone sends it (sms: deep link) so the client sees the agent's real number.
+ * Server-side SMS to third parties was removed deliberately — do not re-add a
+ * Twilio call here.
+ */
+export async function prepareDocumentTextAction(
   docId: string,
-  toPhone: string,
-  recipientName?: string,
-): Promise<ActionResult> {
-  const { accountId } = await requireAccount();
+): Promise<ActionResult & { docName?: string }> {
+  const { accountId, userId } = await requireAccount();
   const doc = await getDocument(accountId, docId);
   if (!doc) return { ok: false, error: "Document not found." };
   if (!doc.template_id && missingRequired(doc.type as DocType, doc.fields).length) {
     return { ok: false, error: "Fill the required fields before sending." };
   }
-  const to = normalizePhone(toPhone);
-  if (!to) return { ok: false, error: "Enter a valid recipient phone number." };
-
   const docName = doc.template_id ? doc.title || "document" : getTemplate(doc.type)?.name || doc.title || "document";
-  const link = `${SEND_SITE_URL}/api/share/${makeShareToken(docId)}`;
-  const who = recipientName?.trim();
-  const body = `${who ? who + ", " : ""}here is your ${docName}: ${link}`;
-  const sent = await sendSms(to, body);
-  if (!sent.ok) return { ok: false, error: sent.error || "Could not send the text." };
-  // Twilio accepting a message is not the carrier delivering it — an unregistered
-  // A2P 10DLC sender gets error 30034 *after* the API returns success. Hand the
-  // link back so the sender can always pass it along another way.
-  return { ok: true, url: link };
+  const url = `${SEND_SITE_URL}/api/share/${makeShareToken(docId)}`;
+  await logActivity(
+    accountId,
+    "document_sent",
+    `Prepared “${doc.title || "a document"}” to text from the agent's phone.`,
+    { actorId: userId },
+  );
+  return { ok: true, url, docName };
 }
 
 export async function setDocumentStatusAction(docId: string, complete: boolean): Promise<ActionResult> {

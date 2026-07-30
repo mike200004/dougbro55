@@ -45,7 +45,7 @@ export default function TermsPage() {
           charges to your payment method until you cancel. Each plan includes a monthly
           allowance of AI voice-assistant minutes. Minutes used beyond that allowance are billed
           as metered overage at your plan’s per-minute rate and appear on your next invoice.
-          Documents, uploads, e-signatures, and texts are unlimited. You can upgrade, downgrade,
+          Documents, uploads, and e-signatures are unlimited. You can upgrade, downgrade,
           or cancel anytime from Settings; upgrades take effect immediately, and downgrades and
           cancellations take effect at the end of the current billing period. Fees already paid
           are non-refundable except where required by law.

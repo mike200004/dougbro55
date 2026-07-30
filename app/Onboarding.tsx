@@ -25,7 +25,7 @@ export default function Onboarding({ phone, hasDoc, hasTemplate, hasTeam }: Prop
     },
     {
       done: hasDoc,
-      label: `Call or text ${phone} and file your first document`,
+      label: `Call ${phone} and file your first document`,
       detail: "Say something like “Start a listing agreement for 12 Oak St…” — Pheme does the rest.",
     },
     {

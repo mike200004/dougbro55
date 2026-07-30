@@ -6,13 +6,13 @@ import { PLANS, TRIAL_DAYS, TRIAL_MINUTES } from "@/lib/billing";
 export const metadata: Metadata = {
   title: "Pricing — Pheme",
   description:
-    "Simple plans for real-estate agents and brokerages. Every plan includes AI voice-assistant minutes, unlimited documents, e-signatures, and texts. Start with a free trial.",
+    "Simple plans for real-estate agents and brokerages. Every plan includes AI voice-assistant minutes, unlimited documents, and e-signatures. Start with a free trial.",
 };
 
 const FAQ: { q: string; a: string }[] = [
   {
     q: "Why are plans priced around voice minutes?",
-    a: "The AI phone assistant is the expensive part to run — a single call can go 30–40 minutes of live speech, transcription, and reasoning. Everything else (documents, uploads, e-signatures, texts, the web assistant) is unlimited on every plan. You only ever pay for what actually costs us: talk time.",
+    a: "The AI phone assistant is the expensive part to run — a single call can go 30–40 minutes of live speech, transcription, and reasoning. Everything else (documents, uploads, e-signatures, the web assistant) is unlimited on every plan. You only ever pay for what actually costs us: talk time.",
   },
   {
     q: "What happens if I go over my minutes?",
@@ -39,7 +39,7 @@ export default async function PricingPage() {
       <header style={{ textAlign: "center" }}>
         <h1 className="pageTitle">Plans that scale with your talk time</h1>
         <p className="pageSub" style={{ maxWidth: 620, margin: "10px auto 0" }}>
-          Documents, uploads, e-signatures, and texts are unlimited on every plan. You pick a
+          Documents, uploads, and e-signatures are unlimited on every plan. You pick a
           plan based on how much you’ll actually talk to your AI assistant. Start free for{" "}
           {TRIAL_DAYS} days.
         </p>
@@ -69,7 +69,7 @@ export default async function PricingPage() {
               <li>✓ <strong>{p.minutes.toLocaleString()}</strong> AI voice minutes / month</li>
               <li>✓ {p.seats} team seat{p.seats === 1 ? "" : "s"}</li>
               <li>✓ Unlimited documents &amp; uploads</li>
-              <li>✓ Unlimited e-signatures &amp; texts</li>
+              <li>✓ Unlimited e-signatures</li>
               <li>✓ Client memory &amp; recall</li>
               <li className="rowSub">Extra minutes ${(p.overageCentsPerMin / 100).toFixed(2)}/min</li>
             </ul>

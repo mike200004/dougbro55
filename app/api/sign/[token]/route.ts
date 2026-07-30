@@ -10,7 +10,6 @@ import {
 import { renderDocument, stampSignaturePage, TemplateRetiredError } from "@/lib/pdf/fill";
 import { uploadSignedFile } from "@/lib/storage";
 import { sendEmail, emailConfigured } from "@/lib/email";
-import { sendSms } from "@/lib/twilio";
 import { logActivity } from "@/lib/activity";
 import { rateLimit, clientIp } from "@/lib/ratelimit";
 
@@ -201,9 +200,5 @@ export async function POST(
       });
     }
   }
-  if (agentProfile?.phone) {
-    await sendSms(agentProfile.phone, `Pheme: ${name} just signed “${doc.title}”. The executed copy is on your dashboard.`);
-  }
-
   return NextResponse.json({ ok: true, status: "signed" });
 }

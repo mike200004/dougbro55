@@ -4,7 +4,6 @@ import { missingRequired, userFields, getTemplate, isDocType } from "@/lib/templ
 import type { DocType } from "@/lib/types";
 import { normalizePhone } from "@/lib/phone";
 import { verifyVapiSecret } from "@/lib/webhook-auth";
-import { sendSms } from "@/lib/twilio";
 import { sendEmail, emailConfigured, escapeHtml } from "@/lib/email";
 import { makeShareToken } from "@/lib/share";
 import { logActivity } from "@/lib/activity";
@@ -113,10 +112,8 @@ export async function POST(req: NextRequest) {
           docs[0] && Date.now() - new Date(docs[0].updated_at).getTime() < 45 * 60_000 ? docs[0] : null;
         const link = recent ? `${SITE}/api/share/${makeShareToken(recent.id)}` : "";
 
-        await sendSms(callerPhone, `Pheme recap: ${recap}${link ? `\nYour document: ${link}` : ""}`);
-
-        // Texts from a number still pending A2P registration can be silently
-        // dropped by carriers — email the recap too so it always lands.
+        // Recaps are email-only: Pheme sends no outbound SMS (tap-to-send
+        // decision, 2026-07) — the agent's inbox is the reliable channel.
         const profile = await getProfile(actor.accountId).catch(() => null);
         if (profile?.email && emailConfigured()) {
           await sendEmail({

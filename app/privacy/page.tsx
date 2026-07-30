@@ -17,7 +17,7 @@ export default function PrivacyPage() {
         <h3 className="cardTitle">How we use it</h3>
         <p style={{ marginBottom: 14 }}>
           To run the service: filling and delivering your documents, remembering your clients
-          for you, routing calls and texts to your account, and securing the platform. We do
+          for you, routing your calls to your account, and securing the platform. We do
           not sell your data, and we don’t use your documents to advertise to anyone.
         </p>
         <h3 className="cardTitle">Service providers</h3>
