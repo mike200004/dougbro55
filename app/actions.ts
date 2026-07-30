@@ -721,7 +721,16 @@ export async function deleteAccountAction(confirmText: string): Promise<ActionRe
   const sb = admin();
   // Stop billing FIRST — deleting the account cascades the subscriptions row
   // away, and an orphaned Stripe subscription would keep charging forever.
-  await cancelStripeSubscriptionNow(await getSubscription(account.accountId));
+  // If Stripe can't confirm the cancellation, REFUSE to delete: proceeding
+  // would leave a live subscription charging a card that no account can see.
+  const canceled = await cancelStripeSubscriptionNow(await getSubscription(account.accountId));
+  if (!canceled.ok) {
+    return {
+      ok: false,
+      error:
+        "We couldn't cancel your subscription with Stripe just now, so nothing was deleted. Try again in a minute, or cancel from Manage billing first.",
+    };
+  }
   // Remove the account's uploaded + signed PDFs from storage (DB cascade
   // doesn't reach the storage bucket).
   try {
