@@ -14,7 +14,11 @@
  * fallback next to it.
  */
 export function smsHref(phone: string | null | undefined, body: string): string {
-  const target = (phone || "").replace(/[^+\d]/g, "");
+  let target = (phone || "").replace(/[^+\d]/g, "");
+  // Free-typed US numbers arrive as 10 bare digits; E.164 keeps Messages from
+  // ever misrouting them. (US-only product — DB-sourced phones are already +1.)
+  if (/^\d{10}$/.test(target)) target = `+1${target}`;
+  else if (/^1\d{10}$/.test(target)) target = `+${target}`;
   const encoded = encodeURIComponent(body);
   return `sms:${target}?body=${encoded}&body=${encoded}`;
 }

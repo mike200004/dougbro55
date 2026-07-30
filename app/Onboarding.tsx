@@ -33,7 +33,7 @@ export default function Onboarding({ phone, hasDoc, hasTemplate, hasTeam }: Prop
       label: "Upload one of your own forms",
       detail: (
         <>
-          Your contract, a disclosure, your brokerage’s paperwork — <Link href="/forms/new">upload it once</Link> and fill it forever, by voice, text, or web.
+          Your contract, a disclosure, your brokerage’s paperwork — <Link href="/forms/new">upload it once</Link> and fill it forever, by voice or web.
         </>
       ),
     },
