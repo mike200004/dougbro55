@@ -1,4 +1,4 @@
-import { createSignatureRequest, getDocument } from "@/lib/db";
+import { createSignatureRequest, getDocument, getProfile } from "@/lib/db";
 import { isDocType, missingRequired, userFields } from "@/lib/templates";
 import type { DocType } from "@/lib/types";
 import { makeSignToken } from "@/lib/share";
@@ -68,12 +68,16 @@ export async function requestSignature(
   // Email is the only server-side delivery channel. Texting the signer happens
   // from the AGENT's own phone (tap-to-send in the Signatures panel) so the
   // signer sees the agent's real number — never re-add a Twilio send here.
+  const agent = await getProfile(accountId).catch(() => null);
   const emailed =
     email && emailConfigured()
       ? await sendEmail({
           to: email,
           subject: `Signature requested: ${docName}`,
-          html: `<p>${who ? `${escapeHtml(who)}, you` : "You"}'ve been asked to sign “${escapeHtml(docName)}”.</p><p><a href="${escapeHtml(url)}">Review &amp; sign it here</a> — it takes under a minute.</p><p>— Pheme</p>`,
+          html: `<p>${who ? `${escapeHtml(who)}, you` : "You"}'ve been asked to sign “${escapeHtml(docName)}”${
+            agent?.agent_name ? ` by ${escapeHtml(agent.agent_name)}` : ""
+          }.</p><p><a href="${escapeHtml(url)}">Review &amp; sign it here</a> — it takes under a minute.</p><p>— Pheme</p>`,
+          onBehalfOf: { name: agent?.agent_name, replyTo: agent?.email },
         })
       : null;
 

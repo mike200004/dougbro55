@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { getClient, getClientDossier } from "@/lib/db";
 import { requireAccount } from "@/lib/auth";
 import { docTypeLabel } from "@/lib/templates";
+import { smsHref } from "@/lib/sms-link";
 import { updateClientAction } from "@/app/actions";
 import DeleteClientButton from "./DeleteClientButton";
 import SubmitButton from "@/app/SubmitButton";
@@ -33,6 +34,29 @@ export default async function ClientDetailPage({
           Everything Pheme knows about this client — edit anything and the assistant uses it
           on the next call.
         </p>
+        {(client.phone || client.email) && (
+          <div className="btnRow" style={{ marginTop: 12, flexWrap: "wrap" }}>
+            {client.phone && (
+              <a className="btn" href={`tel:${client.phone}`}>
+                Call
+              </a>
+            )}
+            {client.phone && (
+              <a
+                className="btn"
+                href={smsHref(client.phone, `Hi ${client.full_name.split(/\s+/)[0]}, `)}
+                aria-label={`Text ${client.full_name} from your phone`}
+              >
+                Text
+              </a>
+            )}
+            {client.email && (
+              <a className="btn" href={`mailto:${client.email}`}>
+                Email
+              </a>
+            )}
+          </div>
+        )}
       </div>
 
       <section>
