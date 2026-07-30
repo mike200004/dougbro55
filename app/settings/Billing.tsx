@@ -122,7 +122,7 @@ export default function Billing(props: Props) {
                   ? "Paused — pick a plan to switch filing and the phone assistant back on."
                   : props.cancelAtPeriodEnd && props.periodEnd
                     ? `Cancels on ${new Date(props.periodEnd).toLocaleDateString()}.`
-                    : "Unlimited documents, uploads, e-signatures, and texts."}
+                    : "Unlimited documents, uploads, and e-signatures."}
             </div>
           </div>
           {props.isOwner && props.hasCustomer && (

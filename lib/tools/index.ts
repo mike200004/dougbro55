@@ -20,7 +20,6 @@ import { requestSignature } from "@/lib/signing";
 import { getTemplate, isDocType, missingRequired, templateList, userFields } from "@/lib/templates";
 import type { ContactRole, DocumentRecord } from "@/lib/types";
 import { makeShareToken } from "@/lib/share";
-import { sendSms } from "@/lib/twilio";
 import { sendEmail, emailConfigured, escapeHtml } from "@/lib/email";
 import { renderDocument } from "@/lib/pdf/fill";
 import { normalizePhone } from "@/lib/phone";
@@ -160,14 +159,14 @@ export const toolSpecs: ToolSpec[] = [
   {
     name: "send_document",
     description:
-      "Text the completed document as a secure download link. Use this when the agent says to send it somewhere — to a client/attorney/other agent (give their number), or to THEMSELVES (e.g. 'text it to me', 'send it to my phone') — in which case omit to_phone and it goes to the agent's own number.",
+      "Get the completed document's secure link on its way. Pheme never texts other people directly — texting a client happens from the AGENT's own phone (this tool prepares the message; the agent taps 'Open in Messages' on the document page and it sends from their number). With no recipient ('send it to me', 'text it to my phone'), the link is EMAILED to the agent instead. To email someone else directly, use email_document. Relay this tool's message to the agent faithfully.",
     parameters: {
       type: "object",
       properties: {
         document_id: { type: "string" },
         to_phone: {
           type: "string",
-          description: "Recipient's phone number. Omit (or leave blank) to send to the agent themselves.",
+          description: "Recipient's mobile, if the agent gave one — it prefills the tap-to-send message. Omit for the agent themselves.",
         },
         recipient_name: { type: "string", description: "Optional recipient name for the message." },
       },
@@ -635,53 +634,53 @@ export async function runTool(
       // to the phone on their profile. Never make the caller dictate the
       // number they're calling from.
       const explicitTo = normalizePhone(String(input.to_phone || ""));
-      const profile = explicitTo ? null : await getProfile(acc);
-      const to = explicitTo || ctx.actorPhone || normalizePhone(profile?.phone || "") || "";
-      if (!to) {
-        return {
-          ok: false,
-          message: "I don't have a mobile number on file for you — what's the best number to text it to?",
-        };
-      }
-      const toSelf = !explicitTo;
-
       const docName = doc.template_id ? doc.title || "document" : getTemplate(doc.type)?.name || doc.title || "document";
       const link = `${SITE_URL}/api/share/${makeShareToken(docId)}`;
       const who = (input.recipient_name as string)?.trim();
-      const body = `${who ? who + ", " : ""}here is your ${docName}: ${link}`;
 
-      const sent = await sendSms(to, body);
-      if (!sent.ok) {
-        return { ok: false, message: `Could not send the text: ${sent.error}` };
-      }
-
-      // Carriers can silently drop texts from a number that hasn't finished
-      // A2P registration — for self-sends, also email the link so the agent
-      // always has a copy that arrives.
-      let emailedToo = false;
-      const selfEmail = toSelf ? (profile ?? (await getProfile(acc)))?.email || "" : "";
-      if (toSelf && selfEmail && emailConfigured()) {
-        emailedToo = true;
-        defer(() =>
-          sendEmail({
-            to: selfEmail,
-            subject: docName,
-            html: `<p>Here’s your ${escapeHtml(docName)}: <a href="${escapeHtml(link)}">view &amp; download the PDF</a>.</p><p>— Pheme</p>`,
-          }),
+      // Pheme sends no SMS to third parties — texts to clients go out from the
+      // AGENT's own phone via the tap-to-send button on the document page, so
+      // the client sees the agent's real number. Never re-add a Twilio send.
+      if (explicitTo || who) {
+        await logActivity(
+          acc,
+          "document_sent",
+          `Prepared a text with “${doc.title || "a document"}” for the agent to send.`,
+          { actorId: ctx.actorId },
         );
+        return {
+          ok: true,
+          link,
+          sms_message: `${who ? who + ", " : ""}here is your ${docName}: ${link}`,
+          message: `Texts go out from YOUR phone so ${who || "the recipient"} sees your number. Open “${
+            doc.title || docName
+          }” in Pheme and tap “Open in Messages” — everything's prefilled. Or say “email it${
+            who ? ` to ${who}` : ""
+          }” and I'll email it right now.`,
+        };
       }
 
-      await logActivity(acc, "document_sent", `Texted “${doc.title || "a document"}” to ${toSelf ? "the agent" : to}.`, { actorId: ctx.actorId });
-      return {
-        ok: true,
-        to,
-        link,
-        message: toSelf
-          ? emailedToo
-            ? "Texted it to your phone and emailed you a copy."
-            : "Texted it to your phone."
-          : `Sent the link by text to ${to}.`,
-      };
+      // "Send it to me": email is the reliable self-copy — the link lands in
+      // the agent's inbox instead of a text that carriers may drop.
+      const profile = await getProfile(acc);
+      const selfEmail = profile?.email || "";
+      if (!selfEmail || !emailConfigured()) {
+        return {
+          ok: true,
+          link,
+          message: `Here's the link to your ${docName}: ${link} — save it from here (no email on file to send a copy to).`,
+        };
+      }
+      const sent = await sendEmail({
+        to: selfEmail,
+        subject: docName,
+        html: `<p>Here’s your ${escapeHtml(docName)}: <a href="${escapeHtml(link)}">view &amp; download the PDF</a>.</p><p>— Pheme</p>`,
+      });
+      if (!sent.ok) {
+        return { ok: true, link, message: `Couldn't email it (${sent.error}) — here's the link: ${link}` };
+      }
+      await logActivity(acc, "document_sent", `Emailed “${doc.title || "a document"}” to the agent.`, { actorId: ctx.actorId });
+      return { ok: true, to: selfEmail, link, message: `Emailed it to ${selfEmail}.` };
     }
 
     case "email_document": {

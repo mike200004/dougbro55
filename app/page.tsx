@@ -137,7 +137,7 @@ export default async function Home({
         <h2 className="sectionTitle">Your forms</h2>
         <p className="pageSub" style={{ marginTop: 0, marginBottom: 14, fontSize: 14 }}>
           Upload any PDF — fillable forms import instantly; flat or scanned ones get AI
-          field detection you fine-tune once. Then fill it by web, voice, or text, forever.
+          field detection you fine-tune once. Then fill it by web or voice, forever.
         </p>
         {uploaded && (
           <div className="notice" style={{ marginBottom: 14 }}>

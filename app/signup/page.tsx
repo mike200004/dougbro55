@@ -12,8 +12,8 @@ export default function SignupPage() {
       </div>
       <h1 className="pageTitle">Create your account</h1>
       <p className="pageSub">
-        Sign up to use the assistant by web, phone, or text. The phone number you
-        register is how calls and texts are matched to your account.
+        Sign up to use the assistant by web or phone. The phone number you
+        register is how your calls are matched to your account.
       </p>
       <SignupForm />
       <p className="muted" style={{ marginTop: 16 }}>

@@ -3,10 +3,11 @@
 import { useMemo, useRef, useState } from "react";
 import {
   saveDocumentFieldsAction,
-  sendDocumentAction,
+  prepareDocumentTextAction,
   setDocumentStatusAction,
   cancelSignatureRequestAction,
 } from "@/app/actions";
+import { smsHref, documentTextMessage, signatureTextMessage } from "@/lib/sms-link";
 
 interface FieldDef {
   key: string;
@@ -23,6 +24,7 @@ interface SignatureRow {
   id: string;
   signer: string;
   contact: string;
+  signerPhone: string | null;
   status: string;
   created_at: string;
   signUrl: string | null;
@@ -213,7 +215,7 @@ export default function DocumentEditor({
         </div>
       </form>
 
-      {signatures.length > 0 && <SignatureList docId={docId} rows={signatures} />}
+      {signatures.length > 0 && <SignatureList docId={docId} docTitle={title} rows={signatures} />}
 
       {!locked && (
         <>
@@ -225,7 +227,15 @@ export default function DocumentEditor({
   );
 }
 
-function SignatureList({ docId, rows }: { docId: string; rows: SignatureRow[] }) {
+function SignatureList({
+  docId,
+  docTitle,
+  rows,
+}: {
+  docId: string;
+  docTitle: string;
+  rows: SignatureRow[];
+}) {
   const [copied, setCopied] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   return (
@@ -245,6 +255,13 @@ function SignatureList({ docId, rows }: { docId: string; rows: SignatureRow[] })
             </span>
             {r.signUrl && (
               <>
+                <a
+                  className="btn"
+                  href={smsHref(r.signerPhone, signatureTextMessage(docTitle || "a document", r.signUrl, r.signer))}
+                  aria-label={`Text the signing link to ${r.signer} from your phone`}
+                >
+                  Text signer
+                </a>
                 <button
                   type="button"
                   className="btn"
@@ -314,7 +331,9 @@ function SendForSignature({
       });
       if (res.ok) {
         if (res.delivered === false && res.sign_url) {
-          setMsg("The request was created, but the link couldn't be delivered automatically — copy it below and send it yourself.");
+          setMsg(
+            "Request created. Tap “Text signer” in the Signatures list to send the link from your phone, or copy it below.",
+          );
           setFallbackUrl(res.sign_url);
         } else {
           setMsg(`Signature request sent to ${name}. You'll be notified the moment they sign.`);
@@ -426,32 +445,39 @@ function SendByText({
   const [phone, setPhone] = useState("");
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [link, setLink] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [prepared, setPrepared] = useState<{ url: string; docName: string } | null>(null);
+  const [copied, setCopied] = useState<"msg" | "link" | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  async function submit() {
+  // One roundtrip when the panel opens: save edits, mint the share link. The
+  // message itself is composed client-side so the sms: href is always in sync
+  // with what's typed — clipboard writes stay synchronous (Safari requires it).
+  async function openPanel() {
+    setOpen(true);
     setBusy(true);
     setErr(null);
-    setMsg(null);
-    setLink(null);
-    setCopied(false);
     try {
       if (dirty) await saveNow();
-      const res = await sendDocumentAction(docId, phone, name);
-      if (res.ok) {
-        setMsg(`Sent a link to ${phone}.`);
-        if (res.url) setLink(res.url);
-        setPhone("");
-      } else {
-        setErr(res.error);
-      }
+      const res = await prepareDocumentTextAction(docId);
+      if (res.ok && res.url && res.docName) setPrepared({ url: res.url, docName: res.docName });
+      else if (!res.ok) setErr(res.error);
     } catch {
       setErr("Something went wrong — please try again.");
     } finally {
       setBusy(false);
     }
+  }
+
+  const message = prepared ? documentTextMessage(prepared.docName, prepared.url, name) : "";
+
+  function copy(kind: "msg" | "link", text: string) {
+    navigator.clipboard.writeText(text).then(
+      () => {
+        setCopied(kind);
+        setTimeout(() => setCopied(null), 2000);
+      },
+      () => setCopied(null),
+    );
   }
 
   return (
@@ -460,9 +486,14 @@ function SendByText({
       {disabled ? (
         <p className="muted">Fill the required fields above to enable sending.</p>
       ) : !open ? (
-        <button type="button" className="btn" onClick={() => setOpen(true)}>
-          Text this document to someone
-        </button>
+        <>
+          <button type="button" className="btn" onClick={openPanel}>
+            Text this document to someone
+          </button>
+          <p className="muted" style={{ fontSize: 13, marginTop: 6 }}>
+            Sends from your phone — your client sees your number, not ours.
+          </p>
+        </>
       ) : (
         <div className="card">
           <div className="formGrid">
@@ -473,61 +504,50 @@ function SendByText({
                 className="input"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), submit())}
               />
             </div>
             <div className="field">
-              <label className="label" htmlFor="send-phone">Recipient mobile number</label>
+              <label className="label" htmlFor="send-phone">Recipient mobile (optional)</label>
               <input
                 id="send-phone"
                 className="input"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 placeholder="(203) 555-0123"
-                onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), submit())}
               />
             </div>
           </div>
-          {msg && <p style={{ color: "var(--ok)", marginBottom: 10 }}>{msg}</p>}
-          {link && (
-            <div className="notice noticeInfo" style={{ marginBottom: 10 }}>
-              Texts can be delayed or filtered by carriers. Here’s the same link if you’d
-              rather send it yourself:
-              <div className="btnRow" style={{ marginTop: 8, alignItems: "center" }}>
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={async () => {
-                    try {
-                      await navigator.clipboard.writeText(link);
-                      setCopied(true);
-                    } catch {
-                      setCopied(false);
-                    }
-                  }}
-                >
-                  {copied ? "Copied ✓" : "Copy link"}
-                </button>
-                <a href={link} target="_blank" rel="noreferrer" style={{ fontSize: 13 }}>
-                  Open it ↗
-                </a>
-              </div>
-            </div>
-          )}
           {err && <p style={{ color: "var(--danger)", marginBottom: 10 }}>{err}</p>}
-          <div className="btnRow">
-            <button
-              type="button"
-              className="btn btnPrimary"
-              disabled={busy || !phone.trim()}
-              onClick={submit}
-            >
-              {busy ? "Sending…" : "Send link"}
-            </button>
-            <button type="button" className="btn" onClick={() => setOpen(false)}>
-              Close
-            </button>
-          </div>
+          {busy && <p className="muted" style={{ marginBottom: 10 }}>Preparing your message…</p>}
+          {prepared && (
+            <>
+              <div className="notice noticeInfo" style={{ marginBottom: 12, fontSize: 13 }}>
+                {message}
+              </div>
+              <div className="btnRow" style={{ alignItems: "center", flexWrap: "wrap" }}>
+                <a
+                  className="btn btnPrimary"
+                  href={smsHref(phone, message)}
+                  aria-label="Open your Messages app with this text prefilled"
+                >
+                  Open in Messages
+                </a>
+                <button type="button" className="btn" onClick={() => copy("msg", message)}>
+                  {copied === "msg" ? "Copied ✓" : "Copy message"}
+                </button>
+                <button type="button" className="btn" onClick={() => copy("link", prepared.url)}>
+                  {copied === "link" ? "Copied ✓" : "Copy link"}
+                </button>
+                <button type="button" className="btn" onClick={() => setOpen(false)}>
+                  Close
+                </button>
+              </div>
+              <p className="muted" style={{ fontSize: 13, marginTop: 8 }}>
+                The text goes out from your phone, so it arrives from your number. On a
+                computer where nothing opens, copy the message and send it from any app.
+              </p>
+            </>
+          )}
         </div>
       )}
     </div>

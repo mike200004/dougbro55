@@ -55,7 +55,7 @@ export default async function RootLayout({
               · Voice that carries.
             </span>
             <span>
-              Call or text <a href="tel:+14752703374">(475) 270-3374</a> ·{" "}
+              Call <a href="tel:+14752703374">(475) 270-3374</a> ·{" "}
               <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · © {year}
             </span>
           </div>

@@ -16,7 +16,7 @@ const STEPS = [
   {
     n: "3",
     title: "File, send & sign",
-    body: "Download the finished PDF, text or email it anywhere, or send it out for e-signature — all from the same conversation.",
+    body: "Download the finished PDF, email it anywhere, text it from your own phone with one tap, or send it out for e-signature — all from the same conversation.",
   },
 ];
 
@@ -31,7 +31,7 @@ const FAQ = [
   },
   {
     q: "How does the phone assistant know it's me?",
-    a: "Caller ID. Your registered mobile (and your assistant's) maps to your account — call or text from it and Pheme already knows who you are, your brokerage details, and your clients.",
+    a: "Caller ID. Your registered mobile (and your assistant's) maps to your account — call from it and Pheme already knows who you are, your brokerage details, and your clients.",
   },
   {
     q: "Are the e-signatures legally valid?",
@@ -39,7 +39,7 @@ const FAQ = [
   },
   {
     q: "What does it cost?",
-    a: `Plans start at $${PLANS[0].monthlyUsd}/month and are priced around AI voice-assistant minutes — the one part that's genuinely expensive to run. Documents, uploads, e-signatures, and texts are unlimited on every plan. Every account starts with a ${TRIAL_DAYS}-day free trial, no credit card required.`,
+    a: `Plans start at $${PLANS[0].monthlyUsd}/month and are priced around AI voice-assistant minutes — the one part that's genuinely expensive to run. Documents, uploads, and e-signatures are unlimited on every plan. Every account starts with a ${TRIAL_DAYS}-day free trial, no credit card required.`,
   },
   {
     q: "Can my assistant use it too?",
@@ -50,7 +50,7 @@ const FAQ = [
 const FEATURES = [
   {
     title: "Your own forms, filled for you",
-    body: "Upload the PDF you actually use — your purchase contract, a disclosure, your brokerage’s paperwork. Pheme reads the fields, then fills it by voice, text, or web, and your whole team can reuse it.",
+    body: "Upload the PDF you actually use — your purchase contract, a disclosure, your brokerage’s paperwork. Pheme reads the fields, then fills it by voice or web, and your whole team can reuse it.",
   },
   {
     title: "A ready-made library too",
@@ -58,7 +58,7 @@ const FEATURES = [
   },
   {
     title: "Hands-free, from anywhere",
-    body: "Call or text (475) 270-3374 from the car, a showing, or the closing table. No app to open, no fields to thumb-type.",
+    body: "Call (475) 270-3374 from the car, a showing, or the closing table. No app to open, no fields to thumb-type.",
   },
   {
     title: "It remembers your clients",
@@ -66,7 +66,7 @@ const FEATURES = [
   },
   {
     title: "Send in seconds",
-    body: "Text or email the finished PDF to a client, attorney, or the other agent — or to yourself — right from the same conversation.",
+    body: "Email the finished PDF to a client, attorney, or the other agent right from the conversation — or text it from your own phone with the message prefilled, so they see your number.",
   },
   {
     title: "E-signatures built in",
@@ -78,7 +78,7 @@ const FEATURES = [
   },
   {
     title: "Built around your forms",
-    body: "Bring the documents your market and brokerage actually use. Pheme learns each one once — then fills it forever, by voice, text, or web.",
+    body: "Bring the documents your market and brokerage actually use. Pheme learns each one once — then fills it forever, by voice or web.",
   },
 ];
 
@@ -113,7 +113,7 @@ export default function Landing() {
         <h1 className="heroTitle">Real estate paperwork, off your plate.</h1>
         <p className="heroSub">
           From listing agreements to commission disbursements — Pheme fills, files, sends,
-          and gets your documents signed, by voice, text, or web. Built for agents and
+          and gets your documents signed, by voice or web. Built for agents and
           brokerages that would rather be doing deals than typing.
         </p>
         <div className="heroCtas">
@@ -127,7 +127,7 @@ export default function Landing() {
       </section>
 
       <div className="phoneCallout">
-        <div className="sub">Call or text your assistant anytime</div>
+        <div className="sub">Call your assistant anytime</div>
         <div className="num">(475) 270-3374</div>
       </div>
 
@@ -164,7 +164,7 @@ export default function Landing() {
 
       <h2 className="sectionHeading">Pricing that follows your talk time</h2>
       <p className="pageSub" style={{ textAlign: "center", maxWidth: 600, margin: "0 auto 22px" }}>
-        Documents, uploads, e-signatures, and texts are unlimited on every plan — you choose
+        Documents, uploads, and e-signatures are unlimited on every plan — you choose
         based on how much you’ll talk to your AI assistant. Free for {TRIAL_DAYS} days.
       </p>
       <div

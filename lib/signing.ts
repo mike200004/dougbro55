@@ -3,7 +3,6 @@ import { isDocType, missingRequired, userFields } from "@/lib/templates";
 import type { DocType } from "@/lib/types";
 import { makeSignToken } from "@/lib/share";
 import { sendEmail, emailConfigured, escapeHtml } from "@/lib/email";
-import { sendSms } from "@/lib/twilio";
 import { normalizePhone } from "@/lib/phone";
 import { logActivity } from "@/lib/activity";
 
@@ -66,35 +65,41 @@ export async function requestSignature(
   const docName = doc.title || "a document";
   const who = input.signerName?.trim();
 
-  // Deliver by email and text in parallel — on a phone call the agent is
-  // waiting through this.
-  const [emailed, texted] = await Promise.all([
+  // Email is the only server-side delivery channel. Texting the signer happens
+  // from the AGENT's own phone (tap-to-send in the Signatures panel) so the
+  // signer sees the agent's real number — never re-add a Twilio send here.
+  const emailed =
     email && emailConfigured()
-      ? sendEmail({
+      ? await sendEmail({
           to: email,
           subject: `Signature requested: ${docName}`,
           html: `<p>${who ? `${escapeHtml(who)}, you` : "You"}'ve been asked to sign “${escapeHtml(docName)}”.</p><p><a href="${escapeHtml(url)}">Review &amp; sign it here</a> — it takes under a minute.</p><p>— Pheme</p>`,
         })
-      : Promise.resolve(null),
-    phone
-      ? sendSms(phone, `${who ? who + ", you" : "You"}'ve been asked to sign "${docName}". Review & sign: ${url}`)
-      : Promise.resolve(null),
-  ]);
-  const delivered: string[] = [];
-  if (emailed?.ok) delivered.push(`emailed ${email}`);
-  if (texted?.ok) delivered.push(`texted ${phone}`);
-
-  if (!delivered.length) {
-    return {
-      ok: true,
-      delivered: false,
-      sign_url: url,
-      message: `Signature request created, but I couldn't deliver it automatically — share this link with ${who || "the signer"}: ${url}`,
-    };
-  }
+      : null;
 
   await logActivity(accountId, "signature_requested", `Signature requested from ${who || email || phone} for “${docName}”.`, {
     actorId: input.actorId ?? null,
   });
-  return { ok: true, delivered: true, sign_url: url, message: `Sent for signature — ${delivered.join(" and ")}.` };
+
+  if (emailed?.ok) {
+    return {
+      ok: true,
+      delivered: true,
+      sign_url: url,
+      message: `Sent for signature — emailed ${email}.${
+        phone
+          ? " To text it too, open the document and tap “Text signer” — the text goes out from your phone."
+          : ""
+      }`,
+    };
+  }
+
+  return {
+    ok: true,
+    delivered: false,
+    sign_url: url,
+    message: phone
+      ? `Request created. Pheme doesn't text signers directly — open the document and tap “Text signer” to send it from your phone, or share this link with ${who || "the signer"}: ${url}`
+      : `Signature request created, but the email couldn't be sent — share this link with ${who || "the signer"}: ${url}`,
+  };
 }
