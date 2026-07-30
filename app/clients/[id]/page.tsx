@@ -44,7 +44,7 @@ export default async function ClientDetailPage({
             {client.phone && (
               <a
                 className="btn"
-                href={smsHref(client.phone, `Hi ${client.full_name.split(/\s+/)[0]}, `)}
+                href={smsHref(client.phone, `Hi ${client.full_name.trim().split(/\s+/)[0] || "there"}, `)}
                 aria-label={`Text ${client.full_name} from your phone`}
               >
                 Text
