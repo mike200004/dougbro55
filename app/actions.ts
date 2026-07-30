@@ -86,7 +86,7 @@ export async function createAccountAction(input: {
   const phone = normalizePhone(input.phone);
   if (!email || !input.password) return { ok: false, error: "Email and password are required." };
   if (input.password.length < 8) return { ok: false, error: "Password must be at least 8 characters." };
-  if (!phone) return { ok: false, error: "A valid phone number is required (it's how calls/texts reach your account)." };
+  if (!phone) return { ok: false, error: "A valid US mobile number is required (it's how your calls are matched to your account)." };
 
   const sb = admin();
   const { data: existing } = await sb
