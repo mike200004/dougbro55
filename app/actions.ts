@@ -655,6 +655,11 @@ export async function remindSignatureAction(requestId: string, docId: string): P
   if (!reqRow.signer_email) {
     return { ok: false, error: "No email on this request — use “Text signer” to nudge them from your phone." };
   }
+  // Per-instance dampener: a signer shouldn't get reminder-bombed. (Same
+  // tradeoff as the other in-memory limits — see lib/ratelimit.ts.)
+  if (!rateLimit(`remind:${requestId}`, 3, 60 * 60_000)) {
+    return { ok: false, error: "You've already reminded them recently — give it a little time." };
+  }
   const doc = await getDocument(accountId, reqRow.document_id);
   if (!doc) return { ok: false, error: "Document not found." };
   const agent = await getProfile(accountId).catch(() => null);

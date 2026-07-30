@@ -124,6 +124,30 @@ export async function POST(req: NextRequest) {
         const accountId =
           obj.metadata?.account_id || (obj.customer ? await accountForCustomer(obj.customer) : null);
         if (!accountId) break;
+        // Subscription-ID awareness: these events must only ever describe the
+        // subscription the account row actually points at. A SECOND live
+        // subscription for the same account (double-checkout race, any event
+        // ordering) is a duplicate: cancel + refund it and leave the row
+        // alone. And the deleted-echo of a healed duplicate must never
+        // force-cancel the account's real subscription.
+        const existingSub = await getSubscription(accountId);
+        const eventSubId = String((obj as { id?: unknown }).id ?? "");
+        if (
+          existingSub?.stripe_subscription_id &&
+          eventSubId &&
+          existingSub.stripe_subscription_id !== eventSubId &&
+          ["active", "trialing", "past_due"].includes(existingSub.status)
+        ) {
+          if (event.type !== "customer.subscription.deleted") {
+            await cancelDuplicateSubscription(obj as { id: string; latest_invoice?: unknown });
+            await logActivity(
+              accountId,
+              "billing",
+              "A duplicate subscription was detected — it was canceled and its charge refunded automatically.",
+            );
+          }
+          break;
+        }
         const row = subscriptionRow(accountId, obj as Parameters<typeof subscriptionRow>[1]);
         if (event.type === "customer.subscription.deleted") row.status = "canceled";
         try {
