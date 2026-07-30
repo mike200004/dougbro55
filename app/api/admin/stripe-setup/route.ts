@@ -87,6 +87,49 @@ export async function POST(req: NextRequest) {
     const balance = await stripe("GET", "/balance");
     report.livemode = balance.livemode === true;
 
+    // --- ?audit=1: read-only money reconciliation --------------------------
+    // Answers "is anything touching my money?" with raw numbers from the
+    // deployment's own key: every subscription, customer, charge, invoice,
+    // and refund, plus the balance. Creates/mutates NOTHING.
+    if (req.nextUrl.searchParams.get("audit") === "1") {
+      const [subs, customers, charges, invoices, refunds] = await Promise.all([
+        stripe("GET", "/subscriptions", { status: "all", limit: "100" }),
+        stripe("GET", "/customers", { limit: "100" }),
+        stripe("GET", "/charges", { limit: "100" }),
+        stripe("GET", "/invoices", { limit: "100" }),
+        stripe("GET", "/refunds", { limit: "100" }),
+      ]);
+      const list = (x: Record<string, unknown>) => (x.data ?? []) as Record<string, unknown>[];
+      const byStatus = (rows: Record<string, unknown>[]) =>
+        rows.reduce<Record<string, number>>((acc, r) => {
+          const s = String(r.status ?? "unknown");
+          acc[s] = (acc[s] ?? 0) + 1;
+          return acc;
+        }, {});
+      const cents = (rows: Record<string, unknown>[], field: string) =>
+        rows.reduce((sum, r) => sum + (Number(r[field]) || 0), 0);
+      report.audit = {
+        subscriptions: {
+          count: list(subs).length,
+          byStatus: byStatus(list(subs)),
+          ids: list(subs).map((s) => ({ id: s.id, status: s.status, account: (s.metadata as Record<string, string> | null)?.account_id ?? null })),
+        },
+        customers: list(customers).length,
+        charges: {
+          count: list(charges).length,
+          grossCents: cents(list(charges), "amount"),
+          refundedCents: cents(list(charges), "amount_refunded"),
+        },
+        invoices: { count: list(invoices).length, byStatus: byStatus(list(invoices)) },
+        refunds: { count: list(refunds).length, totalCents: cents(list(refunds), "amount") },
+        balance: {
+          available: (balance.available as { amount: number; currency: string }[] | undefined) ?? [],
+          pending: (balance.pending as { amount: number; currency: string }[] | undefined) ?? [],
+        },
+      };
+      return NextResponse.json(report);
+    }
+
     // --- products (keyed by metadata.plan) --------------------------------
     const existingProducts = (await stripe("GET", "/products", { active: "true", limit: "100" }))
       .data as StripeListed[];
