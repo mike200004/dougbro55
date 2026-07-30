@@ -695,7 +695,8 @@ export async function runTool(
         return { ok: false, message: "Fill at least one field before sending." };
       }
       let to = String(input.to_email || "").trim();
-      if (!to) to = (await getProfile(acc))?.email || ""; // "email it to me"
+      const senderProfile = await getProfile(acc).catch(() => null);
+      if (!to) to = senderProfile?.email || ""; // "email it to me"
       if (!/.+@.+\..+/.test(to)) {
         return { ok: false, message: "What email address should I send it to?" };
       }
@@ -714,6 +715,7 @@ export async function runTool(
         subject: `${docName}${who ? ` for ${who}` : ""}`,
         html: `<p>${who ? `${escapeHtml(who)}, here` : "Here"}'s your ${escapeHtml(docName)}, attached as a PDF.</p><p>You can also <a href="${escapeHtml(link)}">view it online</a>.</p><p>— Pheme</p>`,
         attachment: { filename: `${filename}.pdf`, contentBase64: Buffer.from(bytes).toString("base64") },
+        onBehalfOf: { name: senderProfile?.agent_name, replyTo: senderProfile?.email },
       });
       if (!sent.ok) {
         return sent.configured

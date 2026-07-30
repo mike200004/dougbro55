@@ -189,6 +189,7 @@ export async function POST(
         subject: `Signed copy: ${doc.title}`,
         html: `<p>${name}, here’s your signed copy of “${doc.title}”, attached.</p><p>— Pheme</p>`,
         attachment,
+        onBehalfOf: { name: agentProfile?.agent_name, replyTo: agentProfile?.email },
       });
     }
     if (agentProfile?.email) {

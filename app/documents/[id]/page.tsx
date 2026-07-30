@@ -63,6 +63,7 @@ export default async function DocumentPage({
       signer: r.signer_name,
       contact: r.signer_email || r.signer_phone || "",
       signerPhone: r.signer_phone || null,
+      signerEmail: r.signer_email || null,
       status: r.status,
       created_at: r.created_at,
       signUrl: r.status === "pending" ? `${SITE}/sign/${makeSignToken(r.id)}` : null,

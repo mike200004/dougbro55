@@ -37,15 +37,27 @@ export async function sendEmail(opts: {
   html: string;
   text?: string;
   attachment?: { filename: string; contentBase64: string };
+  /**
+   * Agent identity for client-facing mail: the display name becomes
+   * "«agent» via Pheme" (the address stays on pheme.deals for DKIM/SPF
+   * alignment) and replies go to the agent, not our unmonitored inbox.
+   */
+  onBehalfOf?: { name?: string | null; replyTo?: string | null };
 }): Promise<SendEmailResult> {
   const key = process.env.RESEND_API_KEY;
   if (!key) return { ok: false, configured: false, error: "Email is not set up yet." };
 
+  const agentName = opts.onBehalfOf?.name?.trim().replace(/["<>\r\n]/g, "");
+  const address = FROM.match(/<([^>]+)>/)?.[1] || FROM;
+  const from = agentName ? `${agentName} via Pheme <${address}>` : FROM;
+  const replyTo = opts.onBehalfOf?.replyTo?.trim();
+
   const body: Record<string, unknown> = {
-    from: FROM,
+    from,
     to: [opts.to],
     subject: opts.subject,
     html: opts.html,
+    ...(replyTo && /.+@.+\..+/.test(replyTo) ? { reply_to: [replyTo] } : {}),
     ...(opts.text ? { text: opts.text } : {}),
     ...(opts.attachment
       ? { attachments: [{ filename: opts.attachment.filename, content: opts.attachment.contentBase64 }] }

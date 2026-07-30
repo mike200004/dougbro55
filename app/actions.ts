@@ -32,7 +32,8 @@ import { requestSignature } from "@/lib/signing";
 import { admin } from "@/lib/supabase/admin";
 import { requireAccount, getSessionUser } from "@/lib/auth";
 import { normalizePhone } from "@/lib/phone";
-import { makeShareToken } from "@/lib/share";
+import { makeShareToken, makeSignToken } from "@/lib/share";
+import { sendEmail, escapeHtml } from "@/lib/email";
 import { uploadTemplateFile } from "@/lib/storage";
 import { detectAcroFields } from "@/lib/pdf/fill";
 import { getTemplate, missingRequired } from "@/lib/templates";
@@ -634,6 +635,48 @@ export async function requestSignatureAction(input: {
   // Pass the real outcome through — "created but not delivered" must not look
   // like success, and the fallback link must reach the user.
   return { ok: true, message: res.message, sign_url: res.delivered ? undefined : res.sign_url, delivered: res.delivered };
+}
+
+/**
+ * Re-send a pending signature request's email (realtors chase signatures
+ * constantly). Phone-only requests use the "Text signer" tap-to-send button
+ * instead — no server SMS exists by design.
+ */
+export async function remindSignatureAction(requestId: string, docId: string): Promise<ActionResult> {
+  const { accountId, userId } = await requireAccount();
+  const { data: reqRow } = await admin()
+    .from("signature_requests")
+    .select("id,signer_name,signer_email,status,document_id")
+    .eq("account_id", accountId)
+    .eq("id", requestId)
+    .eq("status", "pending")
+    .maybeSingle();
+  if (!reqRow) return { ok: false, error: "That request is no longer pending." };
+  if (!reqRow.signer_email) {
+    return { ok: false, error: "No email on this request — use “Text signer” to nudge them from your phone." };
+  }
+  const doc = await getDocument(accountId, reqRow.document_id);
+  if (!doc) return { ok: false, error: "Document not found." };
+  const agent = await getProfile(accountId).catch(() => null);
+  const url = `${SEND_SITE_URL}/sign/${makeSignToken(reqRow.id)}`;
+  const docName = doc.title || "a document";
+  const who = reqRow.signer_name?.trim();
+  const sent = await sendEmail({
+    to: reqRow.signer_email,
+    subject: `Reminder — signature requested: ${docName}`,
+    html: `<p>${who ? `${escapeHtml(who)}, just` : "Just"} a friendly nudge${
+      agent?.agent_name ? ` from ${escapeHtml(agent.agent_name)}` : ""
+    } — “${escapeHtml(docName)}” is still waiting for your signature.</p><p><a href="${escapeHtml(
+      url,
+    )}">Review &amp; sign it here</a> — it takes under a minute.</p><p>— Pheme</p>`,
+    onBehalfOf: { name: agent?.agent_name, replyTo: agent?.email },
+  });
+  if (!sent.ok) return { ok: false, error: sent.error || "Couldn't send the reminder." };
+  await logActivity(accountId, "signature_requested", `Reminded ${who || reqRow.signer_email} to sign “${docName}”.`, {
+    actorId: userId,
+  });
+  revalidatePath(`/documents/${docId}`);
+  return { ok: true };
 }
 
 export async function cancelSignatureRequestAction(requestId: string, docId: string): Promise<ActionResult> {

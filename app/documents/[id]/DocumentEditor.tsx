@@ -25,6 +25,7 @@ interface SignatureRow {
   signer: string;
   contact: string;
   signerPhone: string | null;
+  signerEmail: string | null;
   status: string;
   created_at: string;
   signUrl: string | null;
@@ -255,6 +256,32 @@ function SignatureList({
             </span>
             {r.signUrl && (
               <>
+                {r.signerEmail && (
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={busy === `remind-${r.id}` || copied === `reminded-${r.id}`}
+                    onClick={async () => {
+                      setBusy(`remind-${r.id}`);
+                      try {
+                        const { remindSignatureAction } = await import("@/app/actions");
+                        const res = await remindSignatureAction(r.id, docId);
+                        if (res.ok) {
+                          setCopied(`reminded-${r.id}`);
+                          setTimeout(() => setCopied(null), 4000);
+                        }
+                      } finally {
+                        setBusy(null);
+                      }
+                    }}
+                  >
+                    {busy === `remind-${r.id}`
+                      ? "Sending…"
+                      : copied === `reminded-${r.id}`
+                        ? "Reminder sent ✓"
+                        : "Remind"}
+                  </button>
+                )}
                 <a
                   className="btn"
                   href={smsHref(r.signerPhone, signatureTextMessage(docTitle || "a document", r.signUrl, r.signer))}
