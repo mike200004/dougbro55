@@ -25,7 +25,11 @@ export default function LoginForm() {
     // Full navigation so the server-rendered layout (nav) reflects auth state.
     // Only same-origin paths — `next` must never become an open redirect.
     const next = params.get("next");
-    const dest = next && next.startsWith("/") && !next.startsWith("//") ? next : "/";
+    // Same-origin paths only. Backslashes are rejected explicitly: browsers
+    // treat "/\evil.com" like "//evil.com" (WHATWG URL), which would slip
+    // past the double-slash check and become an open redirect.
+    const dest =
+      next && next.startsWith("/") && !next.startsWith("//") && !next.includes("\\") ? next : "/";
     window.location.assign(dest);
   }
 

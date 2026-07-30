@@ -33,21 +33,26 @@ export default function Team({
     setError(null);
     setNotice(null);
     const fd = new FormData(e.currentTarget);
-    const res = await inviteAssistantAction({
-      name: String(fd.get("name") || ""),
-      email: String(fd.get("email") || ""),
-      phone: String(fd.get("phone") || ""),
-    });
-    setBusy(false);
-    if (!res.ok) {
-      setError(res.error);
-      return;
+    try {
+      const res = await inviteAssistantAction({
+        name: String(fd.get("name") || ""),
+        email: String(fd.get("email") || ""),
+        phone: String(fd.get("phone") || ""),
+      });
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      // Surface the action's own message (e.g. "added but the email didn't
+      // send — resend it") instead of always claiming the invite was delivered.
+      setNotice(res.message ?? "Invite sent. They'll get an email to set a password.");
+      setOpen(false);
+      router.refresh();
+    } catch {
+      setError("Something went wrong — refresh the page and check the team list before retrying.");
+    } finally {
+      setBusy(false);
     }
-    // Surface the action's own message (e.g. "added but the email didn't
-    // send — resend it") instead of always claiming the invite was delivered.
-    setNotice(res.message ?? "Invite sent. They'll get an email to set a password.");
-    setOpen(false);
-    router.refresh();
   }
 
   return (
