@@ -151,8 +151,9 @@ export async function POST(req: NextRequest) {
     if (overrides) {
       return NextResponse.json({ assistantId: ASSISTANT_ID, assistantOverrides: overrides });
     }
-  } catch {
-    // fail open below
+    console.error("[voice] context build timed out (3.5s) — call proceeds ungated/uncapped");
+  } catch (err) {
+    console.error("[voice] context build threw — call proceeds ungated/uncapped", err);
   }
   return NextResponse.json({
     assistantId: ASSISTANT_ID,
@@ -206,7 +207,13 @@ async function buildOverrides(
     latestDraft(actor.accountId, { createdBy: actor.memberId }).catch(() => null),
     getProfile(actor.accountId).catch(() => null),
     listFormTemplates(actor.accountId).catch(() => []),
-    getPlanState(actor.accountId).catch(() => null),
+    getPlanState(actor.accountId).catch((err) => {
+      // Fail-open is deliberate (never refuse to answer the phone on a DB
+      // blip) — but it must be VISIBLE: this is the cost gate, and a silent
+      // null here means an expired account gets a free, uncapped call.
+      console.error("[voice] plan gate failed open — call proceeds ungated", err);
+      return null;
+    }),
   ]);
 
   const firstName = (actor.name || profile?.agent_name || "").trim().split(/\s+/)[0] || "";
@@ -220,7 +227,10 @@ async function buildOverrides(
   let maxDurationSeconds: number | undefined;
   if (plan) {
     const usage = Number.isFinite(plan.minutesIncluded)
-      ? await getVoiceUsage(actor.accountId, plan).catch(() => null)
+      ? await getVoiceUsage(actor.accountId, plan).catch((err) => {
+          console.error("[voice] usage read failed open — trial cap not applied", err);
+          return null;
+        })
       : null;
     const blocked = !plan.active || (!plan.overageAllowed && usage !== null && usage.remainingMinutes <= 0);
     if (blocked) {

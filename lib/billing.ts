@@ -104,8 +104,10 @@ async function stripeReq(
   });
   const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   if (!res.ok) {
-    const err = (data?.error as { message?: string })?.message || `Stripe error ${res.status}`;
-    throw new Error(err);
+    const msg = (data?.error as { message?: string })?.message || `Stripe error ${res.status}`;
+    const err = new Error(msg) as Error & { status?: number };
+    err.status = res.status;
+    throw err;
   }
   return data;
 }
@@ -194,7 +196,11 @@ export async function getPlanState(accountId: string): Promise<PlanState> {
     return {
       plan: (sub.plan as PlanKey) ?? "solo",
       active: true,
-      minutesIncluded: sub.minutes_included || def?.minutes || 0,
+      // If the plan can't be resolved (catalog drift, manually-created
+      // price), fail in the CUSTOMER's favor: grant Solo's allowance rather
+      // than 0 included minutes — 0 would bill every minute as overage from
+      // the first second, i.e. silently overcharge.
+      minutesIncluded: sub.minutes_included || def?.minutes || PLANS[0].minutes,
       overageAllowed: true,
       overageCentsPerMin: sub.overage_cents_per_min || def?.overageCentsPerMin || 40,
       seats: sub.seats || def?.seats || 1,
@@ -369,8 +375,36 @@ export async function recordCallUsage(input: {
       state.sub?.stripe_customer_id &&
       stripeConfigured()
     ) {
-      const newOverage = after.overageMinutes - before.overageMinutes;
-      if (newOverage > 0) {
+      // Delta to bill. Preferred path: the 0015 RPC — per-account advisory
+      // lock (concurrent call-ends can't compute against the same stale
+      // total) and delta accounting (true window overage minus what's already
+      // claimed), which also sweeps in minutes a previous call failed to
+      // bill. The claim lands on this row inside the RPC's transaction; if
+      // Stripe then rejects the invoice item we un-claim so the minutes
+      // return to the pool. Falls back to the old unlocked snapshot math
+      // until the migration is applied.
+      let delta = 0;
+      let claimedInRpc = false;
+      if (rowId) {
+        const rpc = await admin().rpc("record_call_overage", {
+          p_account_id: input.accountId,
+          p_row_id: rowId,
+          p_window_start: usageWindowStart(state).toISOString(),
+          p_included_minutes: before.includedMinutes,
+        });
+        if (!rpc.error) {
+          delta = Number(rpc.data ?? 0) || 0;
+          claimedInRpc = delta > 0;
+        } else {
+          if (["42883", "PGRST202", "42703"].includes(rpc.error.code ?? "")) {
+            console.warn("[billing] migration 0015 not applied — unlocked snapshot overage math in use");
+          } else {
+            console.error("[billing] overage RPC failed; using snapshot math", rpc.error);
+          }
+          delta = after.overageMinutes - before.overageMinutes;
+        }
+      }
+      if (delta > 0) {
         const rate = state.overageCentsPerMin || 40;
         const when = new Date().toLocaleDateString("en-US", {
           month: "short",
@@ -378,11 +412,11 @@ export async function recordCallUsage(input: {
           timeZone: "America/New_York",
         });
         try {
-          // vapi_call_id is the natural idempotency unit — this call's
-          // overage must never bill twice, even if Stripe's response to a
-          // prior attempt was lost (Vercel timeout/network blip) and the
-          // whole recording gets retried. Falls back to the call_usage row id
-          // (still per-call) when there's no vapi_call_id to key on.
+          // vapi_call_id is the natural idempotency unit — this claim must
+          // never bill twice, even if Stripe's response to a prior attempt
+          // was lost (Vercel timeout/network blip) and the whole recording
+          // gets retried. Falls back to the call_usage row id (still
+          // per-call) when there's no vapi_call_id to key on.
           const key = idempotencyKey("overage", input.vapiCallId || rowId || crypto.randomUUID());
           await stripeReq(
             "POST",
@@ -390,20 +424,30 @@ export async function recordCallUsage(input: {
             {
               customer: state.sub.stripe_customer_id,
               currency: "usd",
-              amount: String(newOverage * rate),
-              description: `Voice overage — ${newOverage} min beyond plan allowance (call on ${when})`,
+              amount: String(delta * rate),
+              description: `Voice overage — ${delta} min beyond plan allowance (call on ${when})`,
             },
             { idempotencyKey: key },
           );
-          overageBilledMinutes = newOverage;
-          if (rowId) {
+          overageBilledMinutes = delta;
+          if (rowId && !claimedInRpc) {
             await admin()
               .from("call_usage")
-              .update({ overage_minutes: newOverage, overage_billed: true })
+              .update({ overage_minutes: delta, overage_billed: true })
               .eq("id", rowId);
           }
         } catch (err) {
           console.error("[billing] overage invoice item failed", err);
+          if (rowId && claimedInRpc) {
+            // Release the claim so the next call's RPC re-bills these minutes.
+            await admin()
+              .from("call_usage")
+              .update({ overage_minutes: 0, overage_billed: false })
+              .eq("id", rowId)
+              .then((r) => {
+                if (r.error) console.error("[billing] overage un-claim failed — minutes stranded until manual sweep", r.error);
+              });
+          }
         }
       }
     }
@@ -457,6 +501,42 @@ export async function createCheckoutSession(input: {
   return session.url as string;
 }
 
+/**
+ * Auto-heal for the double-checkout race: an account with an ACTIVE
+ * subscription completed a second Checkout (two tabs, retry an hour later).
+ * The DB is keyed one-subscription-per-account, so the newcomer would either
+ * overwrite the original's ids (orphaning a live subscription that charges
+ * forever, invisibly) or double-bill alongside it. Instead: cancel the NEW
+ * subscription immediately and refund its initial charge. Throws on real
+ * failure so the webhook 500s and Stripe redelivers — the DELETE tolerates
+ * 404 (already canceled) and the refund is idempotency-keyed, so retrying the
+ * heal is safe.
+ */
+export async function cancelDuplicateSubscription(sub: {
+  id: string;
+  latest_invoice?: unknown;
+}): Promise<void> {
+  const id = String(sub.id);
+  try {
+    await stripeReq("DELETE", `/subscriptions/${id}`);
+  } catch (err) {
+    if ((err as { status?: number }).status !== 404) throw err;
+  }
+  const latestInvoice = typeof sub.latest_invoice === "string" ? sub.latest_invoice : null;
+  if (latestInvoice) {
+    const inv = await stripeReq("GET", `/invoices/${latestInvoice}`);
+    const pi = typeof inv.payment_intent === "string" ? inv.payment_intent : null;
+    if (pi && inv.status === "paid" && Number(inv.amount_paid || 0) > 0) {
+      await stripeReq(
+        "POST",
+        "/refunds",
+        { payment_intent: pi },
+        { idempotencyKey: idempotencyKey("duprefund", id) },
+      );
+    }
+  }
+}
+
 export async function createPortalSession(customerId: string): Promise<string> {
   const session = await stripeReq("POST", "/billing_portal/sessions", {
     customer: customerId,
@@ -478,13 +558,18 @@ export async function changeSubscriptionPlan(
 ): Promise<void> {
   const price = await priceIdForLookup(lookupKeyFor(plan, interval));
   const current = await fetchStripeSubscription(stripeSubscriptionId);
-  const itemId = (current.items?.data?.[0] as { id?: string } | undefined)?.id;
+  const item = (current.items?.data?.[0] as { id?: string; price?: { id?: string } } | undefined);
+  const itemId = item?.id;
   if (!itemId) throw new Error("Could not read the current subscription item.");
-  // Keyed on subscription + target price, plus the hour: retrying the same
-  // switch dedupes, but switching away and back (Solo→Pro→Solo→Pro) still
-  // applies — without the bucket the third change would replay the first
-  // response and silently no-op inside Stripe's 24h idempotency window.
-  const key = idempotencyKey("planchange", stripeSubscriptionId, price, hourBucket());
+  // Keyed on subscription + FROM price + TO price + minute: a lost-response
+  // retry (seconds later) dedupes, while flip-flopping Solo→Pro→Solo→Pro
+  // gets fresh keys — the source price differs on the way back, and the
+  // minute bucket separates a same-direction re-switch. (Hour buckets
+  // collided here: the 3rd switch in an hour replayed the 1st response and
+  // silently no-opped in Stripe while the UI claimed success.)
+  const fromPrice = item?.price?.id || "unknown";
+  const minuteBucket = Math.floor(Date.now() / 60_000).toString();
+  const key = idempotencyKey("planchange", stripeSubscriptionId, fromPrice, price, minuteBucket);
   await stripeReq(
     "POST",
     `/subscriptions/${stripeSubscriptionId}`,
@@ -503,17 +588,25 @@ export async function changeSubscriptionPlan(
  * deleted — otherwise Stripe would keep charging a customer whose account no
  * longer exists). Unbilled overage is swept onto a final invoice first.
  */
-export async function cancelStripeSubscriptionNow(sub: Subscription | null): Promise<void> {
-  if (!stripeConfigured() || !sub?.stripe_subscription_id) return;
+export async function cancelStripeSubscriptionNow(
+  sub: Subscription | null,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!stripeConfigured() || !sub?.stripe_subscription_id) return { ok: true };
   try {
     if (sub.stripe_customer_id) await invoicePendingItems(sub.stripe_customer_id);
     // Canceling a subscription is a DELETE in Stripe's API (there is no
     // /cancel sub-path for subscriptions — that's subscription *schedules*).
     await stripeReq("DELETE", `/subscriptions/${sub.stripe_subscription_id}`);
+    return { ok: true };
   } catch (err) {
-    // A already-canceled sub 404s here — that's fine; anything else gets logged
-    // but never blocks account deletion.
-    console.error("[billing] cancel on account delete", err);
+    // An already-canceled sub 404s — that's success for our purposes. Any
+    // OTHER failure must be reported so account deletion can refuse to
+    // proceed: deleting the account cascades the subscriptions row away, and
+    // an orphaned live subscription would keep charging a card forever with
+    // nobody able to see it.
+    if ((err as { status?: number }).status === 404) return { ok: true };
+    console.error("[billing] cancel on account delete failed", err);
+    return { ok: false, error: err instanceof Error ? err.message : "Stripe cancellation failed" };
   }
 }
 

@@ -94,6 +94,7 @@ export default async function SettingsPage({
         overageAllowed={planState.overageAllowed}
         overageCentsPerMin={planState.overageCentsPerMin}
         hasCustomer={!!planState.sub?.stripe_customer_id}
+        pastDue={planState.sub?.status === "past_due"}
         isOwner={isOwner}
         stripeReady={stripeConfigured()}
         plans={PLANS.map((p) => ({

@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { admin } from "@/lib/supabase/admin";
 import {
   accountForCustomer,
+  cancelDuplicateSubscription,
   fetchStripeSubscription,
+  getSubscription,
   invoicePendingItems,
   isMissingAccountError,
   planDef,
@@ -82,6 +84,23 @@ export async function POST(req: NextRequest) {
         // The session payload doesn't carry plan/period details — fetch the
         // subscription so the row lands complete in one write.
         const sub = await fetchStripeSubscription(obj.subscription);
+        // Double-checkout race: if this account ALREADY has a live
+        // subscription with a different id, this checkout is a duplicate —
+        // cancel + refund the newcomer and keep the original untouched.
+        const existing = await getSubscription(accountId);
+        if (
+          existing?.stripe_subscription_id &&
+          existing.stripe_subscription_id !== String(sub.id) &&
+          ["active", "trialing", "past_due"].includes(existing.status)
+        ) {
+          await cancelDuplicateSubscription(sub);
+          await logActivity(
+            accountId,
+            "billing",
+            "A duplicate checkout was detected — the extra subscription was canceled and its charge refunded automatically.",
+          );
+          break;
+        }
         const row = subscriptionRow(accountId, sub);
         await upsertSubscription(row);
         await logActivity(accountId, "billing", `Subscribed to Pheme ${planDef(row.plan)?.name ?? ""}`.trim() + ".");

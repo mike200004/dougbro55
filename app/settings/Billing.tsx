@@ -30,6 +30,7 @@ interface Props {
   stripeReady: boolean;
   plans: PlanOption[];
   notice?: "success" | "canceled" | "inactive";
+  pastDue?: boolean;
 }
 
 const label: Record<string, string> = {
@@ -39,6 +40,7 @@ const label: Record<string, string> = {
   pro: "Pheme Pro",
   brokerage: "Pheme Brokerage",
   expired: "Trial ended",
+  past_due: "Payment failed — update your card",
 };
 
 export default function Billing(props: Props) {
@@ -115,6 +117,12 @@ export default function Billing(props: Props) {
                 ? ` — ${props.trialDaysLeft} day${props.trialDaysLeft === 1 ? "" : "s"} left`
                 : ""}
             </div>
+            {props.pastDue && (
+              <div className="notice" style={{ marginTop: 6, fontSize: 13 }}>
+                Your last payment failed — service continues while Stripe retries your card.
+                Update it under Manage billing to avoid interruption.
+              </div>
+            )}
             <div className="rowSub">
               {props.plan === "beta"
                 ? "Every feature included while Pheme is in early access."
