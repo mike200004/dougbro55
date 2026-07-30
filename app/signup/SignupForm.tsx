@@ -88,7 +88,7 @@ export default function SignupForm() {
         </div>
       </div>
       <p className="hint" style={{ marginBottom: 12 }}>
-        Use the mobile number you’ll call/text from — that’s how the assistant knows it’s you.
+        Use the mobile number you’ll call from — that’s how the assistant knows it’s you.
       </p>
       {error && <p style={{ color: "var(--danger)", marginBottom: 12 }}>{error}</p>}
       <button type="submit" className="btn btnPrimary" disabled={busy}>

@@ -64,11 +64,21 @@ export async function sendEmail(opts: {
       : {}),
   };
 
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  // A network-level throw here (Resend outage, DNS, timeout) must surface as
+  // {ok:false}, never as an exception — callers treat sendEmail as
+  // infallible-to-throw, and an uncaught throw from a server action wedges
+  // the calling button in its busy state with no error shown.
+  let res: Response;
+  try {
+    res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    console.error("[email] Resend unreachable", err);
+    return { ok: false, configured: true, error: "Email service unreachable — try again shortly." };
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     return { ok: false, configured: true, error: data?.message || `Email error ${res.status}` };

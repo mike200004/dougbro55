@@ -1,10 +1,14 @@
 import Link from "next/link";
 import { hasAiKey } from "@/lib/ai";
+import { requireAccount } from "@/lib/auth";
 import Chat from "./Chat";
 
 export const dynamic = "force-dynamic";
 
-export default function AssistantPage() {
+export default async function AssistantPage() {
+  // Same gate as every other protected page: pending accounts go to /pending
+  // here too, not just when their first chat call 403s.
+  await requireAccount();
   const enabled = hasAiKey();
   return (
     <div className="stack">

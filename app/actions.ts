@@ -118,7 +118,15 @@ export async function createAccountAction(input: {
   });
   if (profileErr) {
     await sb.auth.admin.deleteUser(uid);
-    return { ok: false, error: profileErr.message };
+    // Under a race, the pre-checks miss and the DB unique constraint speaks —
+    // translate Postgres 23505 instead of leaking `duplicate key value…`.
+    return {
+      ok: false,
+      error:
+        profileErr.code === "23505"
+          ? "That phone number is already registered to another account."
+          : profileErr.message,
+    };
   }
 
   try {
@@ -126,7 +134,7 @@ export async function createAccountAction(input: {
       id: uid,
       account_id: uid,
       role: "owner",
-      name: input.agent_name ?? "",
+      name: (input.agent_name ?? "").trim(),
       phone,
       email,
       // Private beta: new accounts start pending; an admin flips status to
@@ -135,7 +143,13 @@ export async function createAccountAction(input: {
     });
   } catch (e) {
     await sb.auth.admin.deleteUser(uid);
-    return { ok: false, error: e instanceof Error ? e.message : "Could not create membership." };
+    const msg = e instanceof Error ? e.message : "Could not create membership.";
+    return {
+      ok: false,
+      error: /duplicate key|23505/i.test(msg)
+        ? "That phone number is already registered to another account."
+        : msg,
+    };
   }
 
   // Welcome email (best-effort, after the response).
@@ -227,8 +241,14 @@ export async function removeAssistantAction(memberId: string): Promise<ActionRes
   if (!member || member.role !== "assistant") {
     return { ok: false, error: "That person isn't an assistant on your account." };
   }
+  // Auth user first, checked: if this fails we abort with the member row
+  // still visible (retryable), instead of leaving an orphaned login that can
+  // still authenticate after the row is gone.
+  const { error: authErr } = await admin().auth.admin.deleteUser(memberId);
+  if (authErr && !/not.?found/i.test(authErr.message || "")) {
+    return { ok: false, error: "Couldn't remove their login just now — try again." };
+  }
   await removeMember(account.accountId, memberId);
-  await admin().auth.admin.deleteUser(memberId);
   revalidatePath("/settings");
   return { ok: true };
 }
@@ -259,23 +279,42 @@ export async function resendInviteAction(memberId: string): Promise<ActionResult
     return { ok: false, error: "Could not resend — please invite them again." };
   }
   await removeMember(account.accountId, member.id);
-  await insertMember({
-    id: invite.userId,
-    account_id: account.accountId,
-    role: "assistant",
-    name: member.name ?? "",
-    phone: member.phone,
-    email: member.email,
-    status: "invited",
-  });
+  try {
+    await insertMember({
+      id: invite.userId,
+      account_id: account.accountId,
+      role: "assistant",
+      name: member.name ?? "",
+      phone: member.phone,
+      email: member.email,
+      status: "invited",
+    });
+  } catch (e) {
+    // Never let a failed replacement silently vanish the assistant from the
+    // team list — restore the original row (its auth user is gone, but the
+    // owner can see them and resend again) and clean up the new auth user.
+    await admin().auth.admin.deleteUser(invite.userId);
+    await insertMember({
+      id: member.id,
+      account_id: account.accountId,
+      role: "assistant",
+      name: member.name ?? "",
+      phone: member.phone,
+      email: member.email,
+      status: "invited",
+    }).catch((e2) => console.error("[team] resend restore failed — member missing from list", e2));
+    return { ok: false, error: "Couldn't resend the invite — please try again." };
+  }
   const profile = await getProfile(account.accountId).catch(() => null);
-  await sendInviteEmail(member.email, {
+  const resent = await sendInviteEmail(member.email, {
     inviterName: account.name || profile?.agent_name || "Your agent",
     agencyName: profile?.broker_agency_name,
     link: invite.link,
   });
   revalidatePath("/settings");
-  return { ok: true };
+  return resent
+    ? { ok: true }
+    : { ok: false, error: "Invite refreshed, but the email didn't send — try Resend again in a minute." };
 }
 
 // ---------------------------------------------------------------------------
@@ -796,6 +835,15 @@ export async function deleteAccountAction(confirmText: string): Promise<ActionRe
   for (const m of members ?? []) {
     if (m.id !== account.accountId) await sb.auth.admin.deleteUser(m.id);
   }
-  await sb.auth.admin.deleteUser(account.accountId);
+  // The owner deletion is the one that actually erases the account (every
+  // table cascades from it) — never report success unless it truly happened.
+  const { error: delErr } = await sb.auth.admin.deleteUser(account.accountId);
+  if (delErr) {
+    console.error("[account] owner deletion failed", delErr);
+    return {
+      ok: false,
+      error: "Deletion didn't complete — your subscription is canceled, but the account still exists. Try again.",
+    };
+  }
   return { ok: true };
 }
