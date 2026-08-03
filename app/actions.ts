@@ -482,10 +482,26 @@ export async function newDocumentAction(type: DocType) {
   redirect(`/documents/${doc.id}`);
 }
 
+/** True once any signature request on this document has been signed. */
+async function isExecuted(accountId: string, docId: string): Promise<boolean> {
+  const { data } = await admin()
+    .from("signature_requests")
+    .select("id")
+    .eq("account_id", accountId)
+    .eq("document_id", docId)
+    .eq("status", "signed")
+    .limit(1);
+  return (data ?? []).length > 0;
+}
+
 export async function saveDocumentFieldsAction(docId: string, formData: FormData) {
   const { accountId } = await requireAccount();
   const doc = await getDocument(accountId, docId);
   if (!doc) return;
+  // The editor disables its inputs on an executed document, but that's only
+  // rendering — enforce the lock server-side too, so the stored fields can
+  // never drift from what was actually signed.
+  if (await isExecuted(accountId, docId)) return;
   let valid: string[];
   if (doc.template_id) {
     const ft = await getFormTemplate(accountId, doc.template_id);
@@ -554,6 +570,14 @@ export async function saveOverlayTemplateAction(input: {
   }
 
   const bytes = Buffer.from(input.pdfBase64, "base64");
+  // The browser flow already parsed these bytes, but server actions are
+  // directly invocable — refuse anything that isn't a real PDF rather than
+  // storing a template that 500s every later render.
+  try {
+    await detectAcroFields(bytes);
+  } catch {
+    return { ok: false, error: "That file isn't a readable PDF." };
+  }
   const storagePath = `${accountId}/${randomUUID()}.pdf`;
   await uploadTemplateFile(storagePath, bytes);
   await createFormTemplate(accountId, {
@@ -649,6 +673,10 @@ export async function deleteDocumentAction(docId: string) {
 
 export async function duplicateDocumentAction(docId: string): Promise<ActionResult> {
   const { accountId, userId } = await requireAccount();
+  // Duplicating mints a brand-new document, so it needs the same plan gate as
+  // "New document" — otherwise an expired account can mint unlimited drafts
+  // through the row menu.
+  if (!(await getPlanState(accountId)).active) redirect("/settings?billing=inactive");
   const copy = await duplicateDocument(accountId, docId, userId);
   if (!copy) return { ok: false, error: "Couldn't duplicate that document." };
   redirect(`/documents/${copy.id}`);
@@ -661,6 +689,10 @@ export async function requestSignatureAction(input: {
   signerPhone?: string;
 }): Promise<ActionResult> {
   const { accountId, userId } = await requireAccount();
+  // E-signature delivery is a paid feature path — gate it like the rest.
+  if (!(await getPlanState(accountId)).active) {
+    return { ok: false, error: "Your plan is inactive — pick a plan in Settings to send for signature." };
+  }
   const res = await requestSignature(accountId, {
     documentId: input.docId,
     signerName: input.signerName,
@@ -691,6 +723,9 @@ export async function remindSignatureAction(requestId: string, docId: string): P
     .eq("status", "pending")
     .maybeSingle();
   if (!reqRow) return { ok: false, error: "That request is no longer pending." };
+  if (!(await getPlanState(accountId)).active) {
+    return { ok: false, error: "Your plan is inactive — pick a plan in Settings to send reminders." };
+  }
   if (!reqRow.signer_email) {
     return { ok: false, error: "No email on this request — use “Text signer” to nudge them from your phone." };
   }
