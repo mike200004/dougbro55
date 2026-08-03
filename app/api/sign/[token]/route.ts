@@ -9,7 +9,7 @@ import {
 } from "@/lib/db";
 import { renderDocument, stampSignaturePage, TemplateRetiredError } from "@/lib/pdf/fill";
 import { uploadSignedFile } from "@/lib/storage";
-import { sendEmail, emailConfigured } from "@/lib/email";
+import { sendEmail, emailConfigured, escapeHtml } from "@/lib/email";
 import { logActivity } from "@/lib/activity";
 import { rateLimit, clientIp } from "@/lib/ratelimit";
 
@@ -115,7 +115,7 @@ export async function POST(
       await sendEmail({
         to: agentProfile.email,
         subject: `Declined: ${doc.title}`,
-        html: `<p>${reqRow.signer_name || "Your signer"} declined to sign “${doc.title}”.</p><p>— Pheme</p>`,
+        html: `<p>${escapeHtml(reqRow.signer_name || "Your signer")} declined to sign “${escapeHtml(doc.title)}”.</p><p>— Pheme</p>`,
       });
     }
     return NextResponse.json({ ok: true, status: "declined" });
@@ -187,7 +187,7 @@ export async function POST(
       await sendEmail({
         to: reqRow.signer_email,
         subject: `Signed copy: ${doc.title}`,
-        html: `<p>${name}, here’s your signed copy of “${doc.title}”, attached.</p><p>— Pheme</p>`,
+        html: `<p>${escapeHtml(name)}, here’s your signed copy of “${escapeHtml(doc.title)}”, attached.</p><p>— Pheme</p>`,
         attachment,
         onBehalfOf: { name: agentProfile?.agent_name, replyTo: agentProfile?.email },
       });
@@ -196,7 +196,9 @@ export async function POST(
       await sendEmail({
         to: agentProfile.email,
         subject: `✓ Signed: ${doc.title}`,
-        html: `<p>${name} just signed “${doc.title}”. The executed copy is attached and on your dashboard.</p><p>— Pheme</p>`,
+        // `name` is attacker-controllable: it comes straight off the public,
+        // unauthenticated sign POST body. Never interpolate it unescaped.
+        html: `<p>${escapeHtml(name)} just signed “${escapeHtml(doc.title)}”. The executed copy is attached and on your dashboard.</p><p>— Pheme</p>`,
         attachment,
       });
     }

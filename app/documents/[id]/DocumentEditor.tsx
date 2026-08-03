@@ -52,6 +52,7 @@ export default function DocumentEditor({
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
 
   const missing = fields.filter((f) => f.required && !vals[f.key]?.trim());
@@ -84,21 +85,39 @@ export default function DocumentEditor({
     setDirty(true);
   }
 
+  // `saving` disables BOTH Save and Download/preview, so it must always be
+  // released — a transient save failure that skipped setSaving(false) left
+  // the whole editor wedged until a full page reload.
   async function save(formData: FormData) {
     setSaving(true);
-    await saveDocumentFieldsAction(docId, formData);
-    setSaving(false);
-    setSaved(true);
-    setDirty(false);
+    setSaveError(null);
+    try {
+      await saveDocumentFieldsAction(docId, formData);
+      setSaved(true);
+      setDirty(false);
+    } catch {
+      setSaveError("Couldn't save your changes — check your connection and try again.");
+    } finally {
+      setSaving(false);
+    }
   }
 
-  async function saveNow() {
-    if (!formRef.current) return;
+  /** Returns false when the save failed, so callers don't act on stale data. */
+  async function saveNow(): Promise<boolean> {
+    if (!formRef.current) return true;
     setSaving(true);
-    await saveDocumentFieldsAction(docId, new FormData(formRef.current));
-    setSaving(false);
-    setSaved(true);
-    setDirty(false);
+    setSaveError(null);
+    try {
+      await saveDocumentFieldsAction(docId, new FormData(formRef.current));
+      setSaved(true);
+      setDirty(false);
+      return true;
+    } catch {
+      setSaveError("Couldn't save your changes — check your connection and try again.");
+      return false;
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -188,6 +207,8 @@ export default function DocumentEditor({
           </p>
         )}
 
+        {saveError && <p style={{ color: "var(--danger)", marginBottom: 12 }}>{saveError}</p>}
+
         <div className="btnRow">
           <button type="submit" className="btn btnPrimary" disabled={saving || locked}>
             {saving ? "Saving…" : saved ? "Saved ✓" : "Save"}
@@ -197,8 +218,9 @@ export default function DocumentEditor({
             className="btn"
             disabled={saving}
             onClick={async () => {
-              // Don't hand someone a PDF that's missing their latest edits.
-              if (dirty && !locked) await saveNow();
+              // Don't hand someone a PDF that's missing their latest edits —
+              // and don't open a stale one if that save failed.
+              if (dirty && !locked && !(await saveNow())) return;
               window.open(`/api/documents/${docId}/pdf`, "_blank", "noopener,noreferrer");
             }}
           >
@@ -239,9 +261,11 @@ function SignatureList({
 }) {
   const [copied, setCopied] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [rowErr, setRowErr] = useState<string | null>(null);
   return (
     <div style={{ marginTop: 24, borderTop: "1px solid var(--border)", paddingTop: 20 }}>
       <h2 className="sectionTitle">Signatures</h2>
+      {rowErr && <p style={{ color: "var(--danger)", marginBottom: 10 }}>{rowErr}</p>}
       {rows.map((r) => (
         <div key={r.id} className="row" style={{ padding: "10px 18px" }}>
           <div>
@@ -263,13 +287,20 @@ function SignatureList({
                     disabled={busy === `remind-${r.id}` || copied === `reminded-${r.id}`}
                     onClick={async () => {
                       setBusy(`remind-${r.id}`);
+                      setRowErr(null);
                       try {
                         const { remindSignatureAction } = await import("@/app/actions");
                         const res = await remindSignatureAction(r.id, docId);
                         if (res.ok) {
                           setCopied(`reminded-${r.id}`);
                           setTimeout(() => setCopied(null), 4000);
+                        } else {
+                          // Rate-limited or no-email-on-file must be visible,
+                          // not a button that silently springs back.
+                          setRowErr(res.error);
                         }
+                      } catch {
+                        setRowErr("Couldn't send the reminder — please try again.");
                       } finally {
                         setBusy(null);
                       }
@@ -333,7 +364,7 @@ function SendForSignature({
   docId: string;
   disabled: boolean;
   dirty: boolean;
-  saveNow: () => Promise<void>;
+  saveNow: () => Promise<boolean>;
 }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
@@ -348,7 +379,11 @@ function SendForSignature({
     setBusy(true);
     setErr(null);
     try {
-      if (dirty) await saveNow();
+      // Never send a signature request built on edits that failed to save.
+      if (dirty && !(await saveNow())) {
+        setErr("Couldn't save your latest edits — fix that first, then send.");
+        return;
+      }
       const { requestSignatureAction } = await import("@/app/actions");
       const res = await requestSignatureAction({
         docId,
@@ -466,7 +501,7 @@ function SendByText({
   docId: string;
   disabled: boolean;
   dirty: boolean;
-  saveNow: () => Promise<void>;
+  saveNow: () => Promise<boolean>;
 }) {
   const [open, setOpen] = useState(false);
   const [phone, setPhone] = useState("");
@@ -484,7 +519,10 @@ function SendByText({
     setBusy(true);
     setErr(null);
     try {
-      if (dirty) await saveNow();
+      if (dirty && !(await saveNow())) {
+        setErr("Couldn't save your latest edits — fix that first, then share.");
+        return;
+      }
       const res = await prepareDocumentTextAction(docId);
       if (res.ok && res.url && res.docName) setPrepared({ url: res.url, docName: res.docName });
       else if (!res.ok) setErr(res.error);
@@ -592,7 +630,7 @@ function StatusButton({
   complete: boolean;
   canComplete: boolean;
   dirty: boolean;
-  saveNow: () => Promise<void>;
+  saveNow: () => Promise<boolean>;
 }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -607,7 +645,10 @@ function StatusButton({
           setErr(null);
           try {
             // The action validates against the SAVED copy — save edits first.
-            if (dirty) await saveNow();
+            if (dirty && !(await saveNow())) {
+              setErr("Couldn't save your latest edits — try again.");
+              return;
+            }
             const res = await setDocumentStatusAction(docId, !complete);
             if (!res.ok) setErr(res.error);
           } catch {
