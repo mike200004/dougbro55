@@ -34,7 +34,7 @@ import { requireAccount, getSessionUser } from "@/lib/auth";
 import { normalizePhone } from "@/lib/phone";
 import { makeShareToken, makeSignToken } from "@/lib/share";
 import { sendEmail, escapeHtml } from "@/lib/email";
-import { uploadTemplateFile } from "@/lib/storage";
+import { BUCKET, uploadTemplateFile } from "@/lib/storage";
 import { detectAcroFields } from "@/lib/pdf/fill";
 import { getTemplate, missingRequired } from "@/lib/templates";
 import {
@@ -858,9 +858,9 @@ export async function deleteAccountAction(confirmText: string): Promise<ActionRe
   try {
     const prefixes = [account.accountId, `${account.accountId}/signed`];
     for (const prefix of prefixes) {
-      const { data: objs } = await sb.storage.from("form-templates").list(prefix, { limit: 1000 });
+      const { data: objs } = await sb.storage.from(BUCKET).list(prefix, { limit: 1000 });
       const files = (objs ?? []).filter((o) => o.id).map((o) => `${prefix}/${o.name}`);
-      if (files.length) await sb.storage.from("form-templates").remove(files);
+      if (files.length) await sb.storage.from(BUCKET).remove(files);
     }
   } catch {
     // storage cleanup is best-effort — never block account deletion

@@ -1,4 +1,5 @@
 import { admin } from "@/lib/supabase/admin";
+import { BUCKET } from "@/lib/storage";
 import type {
   AgentProfile,
   Client,
@@ -767,7 +768,7 @@ export async function deleteFormTemplate(accountId: string, templateId: string):
   const tpl = await getFormTemplate(accountId, templateId);
   if (!tpl) return;
   await admin().from("form_templates").delete().eq("account_id", accountId).eq("id", templateId);
-  await admin().storage.from("form-templates").remove([tpl.storage_path]);
+  await admin().storage.from(BUCKET).remove([tpl.storage_path]);
 }
 
 /** Find a template by fuzzy name (for "start a copy of …" over voice/SMS). */
