@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
-import { PLANS, lookupKeyFor, stripeConfigured } from "@/lib/billing";
+import { PLANS, STRIPE_API_VERSION, lookupKeyFor, stripeConfigured } from "@/lib/billing";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -52,6 +52,8 @@ async function stripe(
     method,
     headers: {
       Authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+      // Same pin as lib/billing.ts — this route reads the same object shapes.
+      "Stripe-Version": STRIPE_API_VERSION,
       ...(method === "POST" ? { "Content-Type": "application/x-www-form-urlencoded" } : {}),
     },
     ...(method === "POST" && qs ? { body: qs } : {}),
