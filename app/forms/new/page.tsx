@@ -4,7 +4,11 @@ import { useRef, useState } from "react";
 import Link from "next/link";
 import { uploadFormAction, saveOverlayTemplateAction } from "@/app/actions";
 
-const WORKER = "https://unpkg.com/pdfjs-dist@4.7.76/build/pdf.worker.min.mjs";
+// Served from our own origin, copied out of the installed pdfjs-dist by
+// scripts/copy-pdf-worker.mjs at build time. Never hardcode a version here:
+// pdf.js hard-fails every upload when the API and worker versions differ, and
+// a pinned CDN URL silently goes stale the moment pdfjs-dist is bumped.
+const WORKER = "/pdf.worker.min.mjs";
 
 interface RenderedPage {
   dataUrl: string;
@@ -142,12 +146,18 @@ export default function NewFormPage() {
       setFields(data.fields || []);
       setStage("review");
     } catch (e) {
+      // Never swallow the real reason — a broken PDF engine looks identical to
+      // a broken PDF from the user's side, and that cost us a silent outage.
+      console.error("[upload] analyze failed", e);
+      const raw = e instanceof Error ? e.message : String(e);
       const msg =
         e instanceof Error && e.name === "PasswordException"
           ? "This PDF is password-protected — remove the password and upload it again."
-          : e instanceof Error && /Invalid PDF/i.test(e.message)
+          : /Invalid PDF/i.test(raw)
             ? "That file doesn't look like a valid PDF."
-            : "Something went wrong reading the PDF — please try again.";
+            : /Worker version|worker|dynamically imported module|Failed to fetch/i.test(raw)
+              ? "The PDF engine failed to start on this page — reload and try again. If it keeps happening, this is a Pheme bug, not your file."
+              : "Something went wrong reading the PDF — please try again.";
       setError(msg);
       setStage("pick");
     }

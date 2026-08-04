@@ -146,6 +146,30 @@ console.log("\nSecurity headers");
   }
 }
 
+// The upload page is dead if the pdf.js worker isn't served, or if its version
+// doesn't match the pdfjs-dist the app bundles — pdf.js hard-fails every
+// getDocument() on a mismatch. That exact drift silently broke ALL uploads
+// once; this check is the tripwire.
+console.log("\nPDF upload engine (worker must be served AND version-matched)");
+try {
+  const localVersion = JSON.parse(
+    readFileSync(new URL("../node_modules/pdfjs-dist/package.json", import.meta.url), "utf8"),
+  ).version;
+  const res = await fetch(`${SITE}/pdf.worker.min.mjs`);
+  if (!res.ok) {
+    bad("pdf.js worker served", `HTTP ${res.status} — every PDF upload will fail`);
+  } else {
+    const body = await res.text();
+    if (!body.includes(`"${localVersion}"`)) {
+      bad("pdf.js worker version", `served worker does not report ${localVersion} — uploads will fail on version mismatch`);
+    } else {
+      ok("pdf.js worker served + version-matched", `${localVersion}, ${body.length} bytes`);
+    }
+  }
+} catch (err) {
+  bad("pdf.js worker", String(err));
+}
+
 console.log("\nPDF render paths (the e-sign/share outage canary)");
 if (!SUPABASE_URL || !SERVICE_KEY) {
   skip("PDF renders", "SUPABASE_URL / SERVICE_ROLE_KEY not set");
