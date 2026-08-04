@@ -83,6 +83,14 @@ export function stripeConfigured(): boolean {
 // Stripe REST
 // ---------------------------------------------------------------------------
 
+/**
+ * The Stripe API version this file's response parsing is written against.
+ * Verified live on 2026-08-04 (the account default at the time). Bump only
+ * alongside re-reading Stripe's changelog for the objects we touch:
+ * subscriptions, checkout sessions, invoices, invoiceitems, refunds, balance.
+ */
+export const STRIPE_API_VERSION = "2026-06-24.dahlia";
+
 async function stripeReq(
   method: "GET" | "POST" | "DELETE",
   path: string,
@@ -95,6 +103,12 @@ async function stripeReq(
     method,
     headers: {
       Authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+      // Pin the API version we actually parse. Without this every call
+      // inherits the Stripe ACCOUNT's default version, which Stripe can move
+      // (or someone can bump in the dashboard) with no code change here —
+      // silently reshaping the responses this file reads. Upgrading is now a
+      // deliberate edit, tested against the new shape.
+      "Stripe-Version": STRIPE_API_VERSION,
       ...(method === "POST" ? { "Content-Type": "application/x-www-form-urlencoded" } : {}),
       // GETs are naturally idempotent (and don't need the header) — only
       // mutations carry a key, and only when the caller supplied one.
