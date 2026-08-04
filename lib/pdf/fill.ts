@@ -22,7 +22,7 @@ import type {
 import crypto from "crypto";
 import { getTemplate } from "@/lib/templates";
 import type { Placement } from "@/lib/templates/types";
-import { downloadTemplateFile } from "@/lib/storage";
+import { BUCKET, downloadTemplateFile } from "@/lib/storage";
 import { getFormTemplate, getProfile, latestSignedRequest } from "@/lib/db";
 import { admin } from "@/lib/supabase/admin";
 
@@ -229,7 +229,7 @@ export async function renderDocument(
   if (!opts?.ignoreSigned) {
     const signed = await latestSignedRequest(doc.id);
     if (signed?.signed_path) {
-      const { data } = await admin().storage.from("form-templates").download(signed.signed_path);
+      const { data } = await admin().storage.from(BUCKET).download(signed.signed_path);
       if (data) {
         return {
           bytes: new Uint8Array(await data.arrayBuffer()),

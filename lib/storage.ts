@@ -1,6 +1,11 @@
 import { admin } from "@/lib/supabase/admin";
 
-const BUCKET = "form-templates";
+/**
+ * The one place the bucket is named. Import this instead of restating the
+ * string — a rename that misses a copy silently breaks downloads/deletes
+ * while uploads keep working.
+ */
+export const BUCKET = "form-templates";
 
 /** Create the private templates bucket if it doesn't exist yet (idempotent). */
 export async function ensureTemplatesBucket(): Promise<void> {
