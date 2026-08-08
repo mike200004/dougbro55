@@ -34,13 +34,15 @@ function greeting(name: string | undefined) {
 export default async function Home({
   searchParams,
 }: {
-  searchParams?: Promise<{ uploaded?: string }>;
+  searchParams?: Promise<{ uploaded?: string; formError?: string }>;
 }) {
   const account = await getAccount();
   if (!account) return <Landing />;
   if (account.status !== "active") redirect("/pending");
   const { accountId } = account;
-  const uploaded = (await searchParams)?.uploaded;
+  const params = await searchParams;
+  const uploaded = params?.uploaded;
+  const formError = params?.formError;
 
   const monthStart = new Date();
   monthStart.setDate(1);
@@ -142,6 +144,13 @@ export default async function Home({
         {uploaded && (
           <div className="notice" style={{ marginBottom: 14 }}>
             “{uploaded}” is ready — start a copy any time, or just ask for it by name on a call.
+          </div>
+        )}
+        {formError && (
+          <div className="notice" style={{ marginBottom: 14 }}>
+            “{formError}” has no fillable fields, so there’s nothing to fill in yet. Delete it and
+            upload the PDF again — if it isn’t a fillable form, Pheme will find the blanks for you
+            and let you place them.
           </div>
         )}
         <div className="grid" style={{ marginBottom: forms.length ? 16 : 0 }}>
