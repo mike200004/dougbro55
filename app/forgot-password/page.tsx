@@ -16,13 +16,18 @@ export default function ForgotPasswordPage() {
     setError(null);
     // The action always succeeds (no account enumeration) and sends the email
     // through Resend when the address matches an account.
-    const res = await requestPasswordResetAction(email.trim());
-    setBusy(false);
-    if (!res.ok) {
-      setError(res.error);
-      return;
+    try {
+      const res = await requestPasswordResetAction(email.trim());
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      setSent(true);
+    } catch {
+      setError("We couldn't send the reset email — check your connection and try again.");
+    } finally {
+      setBusy(false);
     }
-    setSent(true);
   }
 
   return (

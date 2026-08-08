@@ -26,11 +26,12 @@ export async function logActivity(
 }
 
 export async function listActivity(accountId: string, limit = 30): Promise<ActivityRecord[]> {
-  const { data } = await admin()
+  const { data, error } = await admin()
     .from("activity")
     .select("*")
     .eq("account_id", accountId)
     .order("created_at", { ascending: false })
     .limit(limit);
+  if (error) throw new Error(`listActivity failed: ${error.message}`);
   return (data as ActivityRecord[]) ?? [];
 }

@@ -10,6 +10,8 @@ export const BUCKET = "form-templates";
 /** Create the private templates bucket if it doesn't exist yet (idempotent). */
 export async function ensureTemplatesBucket(): Promise<void> {
   const sb = admin();
+  // ui-error-ok: a missing bucket is the expected first-run case and is
+  // handled by creating it immediately below.
   const { data } = await sb.storage.getBucket(BUCKET);
   if (!data) {
     const { error } = await sb.storage.createBucket(BUCKET, {

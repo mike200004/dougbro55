@@ -397,16 +397,23 @@ export async function openBillingPortalAction(): Promise<ActionResult> {
 }
 
 /** Called after an invited assistant sets their password (now signed in). */
-export async function acceptInviteAction(): Promise<void> {
+export async function acceptInviteAction(): Promise<ActionResult> {
   const user = await getSessionUser();
-  if (!user) return;
+  if (!user) return { ok: false, error: "Your session expired — sign in and open the invite link again." };
   // Only a genuinely invited assistant may activate through this path. A
   // pending (beta-unapproved) owner must NOT be able to self-activate and
   // bypass the private-beta gate by invoking this action directly.
   const member = await getMember(user.userId);
   if (member?.role === "assistant" && member.status === "invited") {
     await setMemberStatus(user.userId, "active");
+    return { ok: true };
   }
+  // Already active is success (a re-opened invite link), anything else is not:
+  // returning void here meant a failed activation sent the assistant to
+  // /pending showing owner-waitlist copy, which is wrong and unrecoverable
+  // without the owner noticing.
+  if (member?.status === "active") return { ok: true };
+  return { ok: false, error: "We couldn't activate your access — ask the account owner to re-send the invite." };
 }
 
 // ---------------------------------------------------------------------------

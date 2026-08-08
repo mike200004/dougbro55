@@ -16,9 +16,16 @@ export default function LoginForm() {
     setBusy(true);
     setError(null);
     const supabase = createSupabaseBrowser();
-    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-    if (error) {
-      setError(error.message);
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+      if (error) {
+        setError(error.message);
+        setBusy(false);
+        return;
+      }
+    } catch {
+      // A dead "Signing in…" button is the worst possible first impression.
+      setError("We couldn't reach the server — check your connection and try again.");
       setBusy(false);
       return;
     }

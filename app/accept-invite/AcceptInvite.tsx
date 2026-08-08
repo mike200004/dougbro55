@@ -63,13 +63,27 @@ export default function AcceptInvite() {
     setBusy(true);
     setError(null);
     const supabase = createSupabaseBrowser();
-    const { error } = await supabase.auth.updateUser({ password });
-    if (error) {
-      setError(error.message);
+    try {
+      const { error } = await supabase.auth.updateUser({ password });
+      if (error) {
+        setError(error.message);
+        setBusy(false);
+        return;
+      }
+      // Activation must be CHECKED: if it silently no-ops the assistant lands
+      // on /pending and is shown owner-waitlist copy, which is simply wrong
+      // for someone an owner just invited.
+      const activated = await acceptInviteAction();
+      if (activated && activated.ok === false) {
+        setError(activated.error || "We couldn't finish setting up your access — ask the owner to re-send the invite.");
+        setBusy(false);
+        return;
+      }
+    } catch {
+      setError("We couldn't reach the server — check your connection and try again.");
       setBusy(false);
       return;
     }
-    await acceptInviteAction();
     window.location.assign("/");
   }
 
