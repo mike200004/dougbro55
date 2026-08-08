@@ -8,6 +8,7 @@ import {
   cancelSignatureRequestAction,
 } from "@/app/actions";
 import { smsHref, documentTextMessage, signatureTextMessage } from "@/lib/sms-link";
+import { reportClientError } from "@/lib/report-error";
 
 interface FieldDef {
   key: string;
@@ -95,7 +96,8 @@ export default function DocumentEditor({
       await saveDocumentFieldsAction(docId, formData);
       setSaved(true);
       setDirty(false);
-    } catch {
+    } catch (e) {
+      reportClientError("editor.save", e, { docId });
       setSaveError("Couldn't save your changes — check your connection and try again.");
     } finally {
       setSaving(false);
@@ -112,7 +114,8 @@ export default function DocumentEditor({
       setSaved(true);
       setDirty(false);
       return true;
-    } catch {
+    } catch (e) {
+      reportClientError("editor.saveNow", e, { docId });
       setSaveError("Couldn't save your changes — check your connection and try again.");
       return false;
     } finally {
