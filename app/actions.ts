@@ -601,6 +601,11 @@ export async function startFromTemplateAction(templateId: string) {
   if (!(await getPlanState(accountId)).active) redirect("/settings?billing=inactive");
   const ft = await getFormTemplate(accountId, templateId);
   if (!ft) return;
+  // A template with no fields produces a document with nothing to fill — the
+  // editor would promise "fill the fields below" over an empty form and still
+  // offer to send/sign it blank. Send the agent back with a real explanation
+  // instead of into that dead end.
+  if (!ft.fields?.length) redirect(`/?formError=${encodeURIComponent(ft.name)}`);
   const doc = await createDocument(accountId, {
     type: "uploaded",
     template_id: ft.id,

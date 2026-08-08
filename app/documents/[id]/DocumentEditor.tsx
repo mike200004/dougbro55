@@ -242,8 +242,10 @@ export default function DocumentEditor({
 
       {!locked && (
         <>
-          <SendByText docId={docId} disabled={missing.length > 0} dirty={dirty} saveNow={saveNow} />
-          <SendForSignature docId={docId} disabled={missing.length > 0} dirty={dirty} saveNow={saveNow} />
+          {/* A document with no fields at all is a broken import, not a
+              ready-to-send document — don't offer to send or sign a blank. */}
+          <SendByText docId={docId} disabled={missing.length > 0 || !fields.length} dirty={dirty} saveNow={saveNow} />
+          <SendForSignature docId={docId} disabled={missing.length > 0 || !fields.length} dirty={dirty} saveNow={saveNow} />
         </>
       )}
     </>

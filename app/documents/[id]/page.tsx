@@ -87,7 +87,12 @@ export default async function DocumentPage({
     isUploaded = true;
     const ft = await getFormTemplate(accountId, doc.template_id);
     heading = ft?.name ?? doc.title ?? "Uploaded form";
-    sub = "Your uploaded form. Fill the fields below, then download or send it.";
+    // Don't promise fields that aren't there — a template that imported with
+    // no fields would otherwise render an empty form under "fill the fields
+    // below", with Send and Request-signature both enabled on a blank doc.
+    sub = (ft?.fields ?? []).length
+      ? "Your uploaded form. Fill the fields below, then download or send it."
+      : "This form imported without any fillable fields, so there's nothing to fill in. Delete it from the dashboard and upload the PDF again — Pheme will find the blanks and let you place them.";
     fields = (ft?.fields ?? []).map((f) => ({
       key: f.key,
       label: f.label,
