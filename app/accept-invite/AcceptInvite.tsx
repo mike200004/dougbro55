@@ -20,11 +20,30 @@ export default function AcceptInvite() {
     const tokenHash = params.get("token_hash");
 
     if (tokenHash) {
-      supabase.auth.verifyOtp({ token_hash: tokenHash, type: "invite" }).then(({ data, error }) => {
-        if (!error && data.user) setReady(true);
-        else setError("This invite link is invalid or has expired. Ask the owner to re-invite you.");
-      });
-      return;
+      // Same shape as the reset link: without a rejection handler or timeout,
+      // a blip leaves the invited assistant on "Verifying your invite…" with a
+      // disabled field and no way forward.
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        setError("This invite link couldn't be verified — check your connection, or ask the owner to re-send it.");
+      }, 8000);
+      supabase.auth
+        .verifyOtp({ token_hash: tokenHash, type: "invite" })
+        .then(({ data, error }) => {
+          if (settled) return;
+          settled = true;
+          if (!error && data.user) setReady(true);
+          else setError("This invite link is invalid or has expired. Ask the owner to re-invite you.");
+        })
+        .catch(() => {
+          if (settled) return;
+          settled = true;
+          setError("This invite link couldn't be verified — check your connection, or ask the owner to re-send it.");
+        })
+        .finally(() => clearTimeout(timer));
+      return () => clearTimeout(timer);
     }
 
     supabase.auth.getUser().then(({ data }) => {

@@ -144,7 +144,13 @@ export default function NewFormPage() {
         return;
       }
       const data = await res.json();
-      setFields(data.fields || []);
+      const detected = data.fields || [];
+      setFields(detected);
+      if (!detected.length) {
+        setInfo(
+          "Pheme couldn't find any blanks on this form — add them yourself with “+ Add a field”, then drag each marker where the value should print.",
+        );
+      }
       setStage("review");
     } catch (e) {
       // Never swallow the real reason — a broken PDF engine looks identical to
@@ -301,6 +307,32 @@ export default function NewFormPage() {
             ))}
             <div className="btnRow" style={{ marginTop: 18 }}>
               <button className="btn btnPrimary" onClick={save}>Save form</button>
+              {/* Without this, a form the AI can't read is a dead end: the
+                  server refuses to save zero fields and there was no way to
+                  add one. Drops a marker mid-page; drag it into place. */}
+              <button
+                type="button"
+                className="btn"
+                onClick={() =>
+                  setFields((fs) => [
+                    ...fs,
+                    {
+                      key: `field_${fs.length}_${Math.round(performance.now())}`,
+                      label: "New field",
+                      type: "text",
+                      placement: {
+                        page: 0,
+                        x: 72,
+                        y: Math.round((pages[0]?.hPt ?? 792) / 2),
+                        size: 10,
+                        maxWidth: 200,
+                      },
+                    },
+                  ])
+                }
+              >
+                + Add a field
+              </button>
               <button className="btn" onClick={() => setStage("pick")}>Start over</button>
             </div>
           </div>

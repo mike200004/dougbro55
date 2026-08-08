@@ -21,17 +21,40 @@ function ResetPassword() {
 
     const tokenHash = params.get("token_hash");
     if (tokenHash) {
-      supabase.auth.verifyOtp({ token_hash: tokenHash, type: "recovery" }).then(({ error }) => {
-        settled = true;
-        if (error) {
+      // This is the branch every real reset link takes. It used to return
+      // before the timeout below was installed and had no rejection handler,
+      // so a network blip left someone locked out of their account staring at
+      // "Verifying your reset link…" forever. It now fails, always.
+      const tokenTimer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
           setError(
-            "This reset link is invalid or has expired — they're single-use. Request a new one from the sign-in page.",
+            "We couldn't verify your reset link — check your connection and request a new one from the sign-in page.",
           );
-        } else {
-          setReady(true);
         }
-      });
-      return;
+      }, 8000);
+      supabase.auth
+        .verifyOtp({ token_hash: tokenHash, type: "recovery" })
+        .then(({ error }) => {
+          if (settled) return;
+          settled = true;
+          if (error) {
+            setError(
+              "This reset link is invalid or has expired — they're single-use. Request a new one from the sign-in page.",
+            );
+          } else {
+            setReady(true);
+          }
+        })
+        .catch(() => {
+          if (settled) return;
+          settled = true;
+          setError(
+            "We couldn't verify your reset link — check your connection and request a new one from the sign-in page.",
+          );
+        })
+        .finally(() => clearTimeout(tokenTimer));
+      return () => clearTimeout(tokenTimer);
     }
 
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
