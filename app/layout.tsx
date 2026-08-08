@@ -3,6 +3,7 @@ import { Lato, Merriweather } from "next/font/google";
 import "./globals.css";
 import { getSessionUser } from "@/lib/auth";
 import SiteNav from "./SiteNav";
+import ErrorReporter from "./ErrorReporter";
 
 const lato = Lato({
   subsets: ["latin"],
@@ -42,6 +43,7 @@ export default async function RootLayout({
   return (
     <html lang="en">
       <body className={`${lato.variable} ${merriweather.variable}`}>
+        <ErrorReporter />
         <SiteNav email={user?.email ?? null} />
 
         <div className="container">{children}</div>

@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import Link from "next/link";
 import { uploadFormAction, saveOverlayTemplateAction } from "@/app/actions";
+import { reportClientError } from "@/lib/report-error";
 
 // Served from our own origin, copied out of the installed pdfjs-dist by
 // scripts/copy-pdf-worker.mjs at build time. Never hardcode a version here:
@@ -149,6 +150,7 @@ export default function NewFormPage() {
       // Never swallow the real reason — a broken PDF engine looks identical to
       // a broken PDF from the user's side, and that cost us a silent outage.
       console.error("[upload] analyze failed", e);
+      reportClientError("upload.analyze", e, { file: file?.name, size: file?.size });
       const raw = e instanceof Error ? e.message : String(e);
       const msg =
         e instanceof Error && e.name === "PasswordException"
@@ -180,7 +182,8 @@ export default function NewFormPage() {
       }
       setError(res.error);
       setStage("review");
-    } catch {
+    } catch (e) {
+      reportClientError("upload.save", e, { file: file?.name, size: file?.size, fields: fields.length });
       setError("Saving failed — the PDF may be too large to upload. Try again, or use a smaller copy.");
       setStage("review");
     }
