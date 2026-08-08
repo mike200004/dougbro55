@@ -304,12 +304,14 @@ export interface VoiceUsage {
 export async function getVoiceUsage(accountId: string, state?: PlanState): Promise<VoiceUsage> {
   const s = state ?? (await getPlanState(accountId));
   const windowStart = usageWindowStart(s);
-  const { data } = await admin()
+  const { data, error } = await admin()
     .from("call_usage")
     .select("seconds")
     .eq("account_id", accountId)
     .gte("created_at", windowStart.toISOString())
     .limit(5000);
+  // Under-reporting usage silently under-bills and misdraws the meter.
+  if (error) throw new Error(`voice usage read failed: ${error.message}`);
   const usedMinutes = (data ?? []).reduce(
     (sum, row) => sum + Math.ceil(((row as { seconds: number }).seconds || 0) / 60),
     0,
@@ -839,10 +841,13 @@ export const UPGRADE_MESSAGE =
 
 /** Look up which account a Stripe customer belongs to (webhook fallback). */
 export async function accountForCustomer(customerId: string): Promise<string | null> {
-  const { data } = await admin()
+  const { data, error } = await admin()
     .from("subscriptions")
     .select("account_id")
     .eq("stripe_customer_id", customerId)
     .maybeSingle();
+  // The webhook uses this to find the account. A swallowed error looks like
+  // "unknown customer" and the event is silently dropped.
+  if (error) throw new Error(`accountForCustomer failed: ${error.message}`);
   return (data as { account_id: string } | null)?.account_id ?? null;
 }

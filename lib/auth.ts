@@ -19,6 +19,9 @@ export interface Account {
 /** Returns the signed-in user, or null. */
 export async function getSessionUser(): Promise<SessionUser | null> {
   const supabase = await createSupabaseServer();
+  // ui-error-ok: a missing/expired session is the normal signed-out path —
+  // getUser() reports that as an error, and treating it as a failure would
+  // break every logged-out page.
   const { data } = await supabase.auth.getUser();
   if (!data.user) return null;
   return { userId: data.user.id, email: data.user.email ?? null };

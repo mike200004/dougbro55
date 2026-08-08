@@ -40,11 +40,12 @@ const PROFILE_COLS =
   "broker_agency_name, agent_name, license_number, street, city_state_zip, email, phone";
 
 export async function getProfile(accountId: string): Promise<AgentProfile | null> {
-  const { data } = await admin()
+  const { data, error } = await admin()
     .from("profiles")
     .select(PROFILE_COLS)
     .eq("id", accountId)
     .maybeSingle();
+  if (error) throw new Error(`getProfile failed: ${error.message}`);
   return (data as AgentProfile) ?? null;
 }
 
@@ -87,11 +88,14 @@ export interface ResolvedActor {
 
 /** Resolve the account + actor for a logged-in user. */
 export async function getMember(userId: string): Promise<ResolvedActor | null> {
-  const { data } = await admin()
+  const { data, error } = await admin()
     .from("account_members")
     .select("account_id, name, role, status")
     .eq("id", userId)
     .maybeSingle();
+  // A swallowed error here reads as "you are not a member" and bounces a
+  // signed-in user back to /login in a loop.
+  if (error) throw new Error(`getMember failed: ${error.message}`);
   if (!data) return null;
   return { accountId: data.account_id, memberId: userId, name: data.name, role: data.role, status: data.status };
 }
@@ -103,22 +107,26 @@ export async function getMember(userId: string): Promise<ResolvedActor | null> {
  */
 export async function getAccountByPhone(phone: string): Promise<ResolvedActor | null> {
   if (!phone) return null;
-  const { data } = await admin()
+  const { data, error } = await admin()
     .from("account_members")
     .select("id, account_id, name, role, status")
     .eq("phone", phone)
     .eq("status", "active")
     .maybeSingle();
+  // Treating an error as "unknown caller" would tell a registered agent
+  // mid-call that they need to sign up.
+  if (error) throw new Error(`getAccountByPhone failed: ${error.message}`);
   if (!data) return null;
   return { accountId: data.account_id, memberId: data.id, name: data.name, role: data.role, status: data.status };
 }
 
 export async function listMembers(accountId: string): Promise<Member[]> {
-  const { data } = await admin()
+  const { data, error } = await admin()
     .from("account_members")
     .select("*")
     .eq("account_id", accountId)
     .order("created_at", { ascending: true });
+  if (error) throw new Error(`listMembers failed: ${error.message}`);
   return (data as Member[]) ?? [];
 }
 
@@ -185,12 +193,13 @@ export async function getClient(
   accountId: string,
   clientId: string,
 ): Promise<Client | null> {
-  const { data } = await admin()
+  const { data, error } = await admin()
     .from("clients")
     .select("*")
     .eq("account_id", accountId)
     .eq("id", clientId)
     .maybeSingle();
+  if (error) throw new Error(`getClient failed: ${error.message}`);
   return (data as Client) ?? null;
 }
 
@@ -690,12 +699,15 @@ export async function getDocument(
   accountId: string,
   docId: string,
 ): Promise<DocumentRecord | null> {
-  const { data } = await admin()
+  const { data, error } = await admin()
     .from("documents")
     .select("*")
     .eq("account_id", accountId)
     .eq("id", docId)
     .maybeSingle();
+  // "Document not found" on a read error would look like the document was
+  // deleted — and several actions no-op silently on null.
+  if (error) throw new Error(`getDocument failed: ${error.message}`);
   return (data as DocumentRecord) ?? null;
 }
 
@@ -771,12 +783,13 @@ export async function getFormTemplate(
   accountId: string,
   templateId: string,
 ): Promise<FormTemplate | null> {
-  const { data } = await admin()
+  const { data, error } = await admin()
     .from("form_templates")
     .select("*")
     .eq("account_id", accountId)
     .eq("id", templateId)
     .maybeSingle();
+  if (error) throw new Error(`getFormTemplate failed: ${error.message}`);
   return (data as FormTemplate) ?? null;
 }
 
@@ -811,7 +824,8 @@ export async function findFormTemplateByName(
 
 /** Fetch a document by id without account scoping (for token-authorized share links). */
 export async function getDocumentById(docId: string): Promise<DocumentRecord | null> {
-  const { data } = await admin().from("documents").select("*").eq("id", docId).maybeSingle();
+  const { data, error } = await admin().from("documents").select("*").eq("id", docId).maybeSingle();
+  if (error) throw new Error(`getDocumentById failed: ${error.message}`);
   return (data as DocumentRecord) ?? null;
 }
 
@@ -900,7 +914,8 @@ export async function createSignatureRequest(
 
 /** Unscoped fetch — the signing page authorizes by HMAC token, not session. */
 export async function getSignatureRequestById(id: string): Promise<SignatureRequest | null> {
-  const { data } = await admin().from("signature_requests").select("*").eq("id", id).maybeSingle();
+  const { data, error } = await admin().from("signature_requests").select("*").eq("id", id).maybeSingle();
+  if (error) throw new Error(`getSignatureRequestById failed: ${error.message}`);
   return (data as SignatureRequest) ?? null;
 }
 
@@ -921,12 +936,15 @@ export async function transitionSignatureRequest(
   from: SignatureRequest["status"],
   patch: Partial<Pick<SignatureRequest, "status" | "signed_path" | "audit" | "signed_at" | "signer_name">>,
 ): Promise<boolean> {
-  const { data } = await admin()
+  const { data, error } = await admin()
     .from("signature_requests")
     .update(patch)
     .eq("id", id)
     .eq("status", from)
     .select("id");
+  // This is the atomic claim that prevents double-signing. An error must not
+  // be reported as "someone else already claimed it".
+  if (error) throw new Error(`transitionSignatureRequest failed: ${error.message}`);
   return Array.isArray(data) && data.length > 0;
 }
 
@@ -947,7 +965,7 @@ export async function listSignatureRequests(
 
 /** Latest completed signature for a document, if any (signed PDFs chain). */
 export async function latestSignedRequest(documentId: string): Promise<SignatureRequest | null> {
-  const { data } = await admin()
+  const { data, error } = await admin()
     .from("signature_requests")
     .select("*")
     .eq("document_id", documentId)
@@ -955,6 +973,9 @@ export async function latestSignedRequest(documentId: string): Promise<Signature
     .order("signed_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+  // Returning null on error would make an EXECUTED document render as an
+  // unsigned blank — the document of record must never be guessed at.
+  if (error) throw new Error(`latestSignedRequest failed: ${error.message}`);
   return (data as SignatureRequest) ?? null;
 }
 
@@ -968,6 +989,8 @@ export interface SmsTurn {
 }
 
 export async function getSmsSession(phone: string): Promise<SmsTurn[]> {
+  // ui-error-ok: losing conversation memory degrades the reply but must never
+  // break an inbound text; an empty transcript is the safe fallback.
   const { data } = await admin()
     .from("sms_sessions")
     .select("transcript")

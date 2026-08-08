@@ -88,9 +88,15 @@ function ResetPassword() {
     setBusy(true);
     setError(null);
     const supabase = createSupabaseBrowser();
-    const { error } = await supabase.auth.updateUser({ password });
-    if (error) {
-      setError(error.message);
+    try {
+      const { error } = await supabase.auth.updateUser({ password });
+      if (error) {
+        setError(error.message);
+        setBusy(false);
+        return;
+      }
+    } catch {
+      setError("We couldn't reach the server — check your connection and try again.");
       setBusy(false);
       return;
     }
