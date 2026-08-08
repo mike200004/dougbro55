@@ -7,7 +7,7 @@ import {
   transitionSignatureRequest,
   updateSignatureRequest,
 } from "@/lib/db";
-import { renderDocument, stampSignaturePage, TemplateRetiredError } from "@/lib/pdf/fill";
+import { renderDocument, stampSignaturePage, SignedCopyUnavailableError, TemplateRetiredError } from "@/lib/pdf/fill";
 import { uploadSignedFile } from "@/lib/storage";
 import { sendEmail, emailConfigured, escapeHtml } from "@/lib/email";
 import { logActivity } from "@/lib/activity";
@@ -53,6 +53,13 @@ export async function GET(
         },
       });
     } catch (err) {
+      if (err instanceof SignedCopyUnavailableError) {
+        // Never re-render an unsigned blank in place of an executed document.
+        return NextResponse.json(
+          { error: "Your signed copy is temporarily unavailable — please try again in a minute." },
+          { status: 503 },
+        );
+      }
       if (err instanceof TemplateRetiredError) {
         return NextResponse.json({ error: "This form has been retired and can no longer be signed." }, { status: 410 });
       }
@@ -156,7 +163,10 @@ export async function POST(
   // of this fails, roll the reservation back to pending so it can be retried.
   let signedBytes: Uint8Array;
   try {
-    const { bytes } = await renderDocument(doc);
+    // Render the UNSIGNED source here on purpose: this runs after the status
+    // flips to signed but before the signed object exists, so asking for the
+    // signed copy would (now that a missing one throws) break every signature.
+    const { bytes } = await renderDocument(doc, { ignoreSigned: true });
     signedBytes = await stampSignaturePage(bytes, {
       signerName: name,
       signerContact: reqRow.signer_email || reqRow.signer_phone || "—",
@@ -170,6 +180,13 @@ export async function POST(
     await uploadSignedFile(signedPath, signedBytes);
   } catch (err) {
     await updateSignatureRequest(reqRow.id, { status: "pending", signed_path: null, signed_at: null });
+    if (err instanceof SignedCopyUnavailableError) {
+      // Never re-render an unsigned blank in place of an executed document.
+      return NextResponse.json(
+        { error: "Your signed copy is temporarily unavailable — please try again in a minute." },
+        { status: 503 },
+      );
+    }
     if (err instanceof TemplateRetiredError) {
       return NextResponse.json({ error: "This form has been retired and can no longer be signed." }, { status: 410 });
     }
@@ -182,18 +199,26 @@ export async function POST(
     filename: `${(doc.title || "document").replace(/[^a-z0-9]+/gi, "-")}-signed.pdf`,
     contentBase64: Buffer.from(signedBytes).toString("base64"),
   };
+  // Both sends are CHECKED. Previously their results were discarded, so the
+  // signer was told "a copy was emailed to you" when nothing sent, and the
+  // agent could miss the signature entirely — the likeliest real failure for
+  // an agent on a strict-filtering mailbox.
+  let signerEmailed = true;
+  let agentEmailed = true;
   if (emailConfigured()) {
     if (reqRow.signer_email) {
-      await sendEmail({
+      const sent = await sendEmail({
         to: reqRow.signer_email,
         subject: `Signed copy: ${doc.title}`,
         html: `<p>${escapeHtml(name)}, here’s your signed copy of “${escapeHtml(doc.title)}”, attached.</p><p>— Pheme</p>`,
         attachment,
         onBehalfOf: { name: agentProfile?.agent_name, replyTo: agentProfile?.email },
       });
+      signerEmailed = sent.ok;
+      if (!sent.ok) console.error("[sign] signed-copy email to signer failed", sent.error);
     }
     if (agentProfile?.email) {
-      await sendEmail({
+      const sent = await sendEmail({
         to: agentProfile.email,
         subject: `✓ Signed: ${doc.title}`,
         // `name` is attacker-controllable: it comes straight off the public,
@@ -201,7 +226,18 @@ export async function POST(
         html: `<p>${escapeHtml(name)} just signed “${escapeHtml(doc.title)}”. The executed copy is attached and on your dashboard.</p><p>— Pheme</p>`,
         attachment,
       });
+      agentEmailed = sent.ok;
+      if (!sent.ok) console.error("[sign] signed notification to agent failed", sent.error);
     }
   }
-  return NextResponse.json({ ok: true, status: "signed" });
+  // The agent must be able to discover a missed notification from the app
+  // itself, not just from an email that never arrived.
+  if (!agentEmailed) {
+    await logActivity(
+      doc.account_id,
+      "signature_signed",
+      `Heads up: we couldn't email you the signed copy of “${doc.title}”. It's on the document page.`,
+    );
+  }
+  return NextResponse.json({ ok: true, status: "signed", emailed: signerEmailed });
 }

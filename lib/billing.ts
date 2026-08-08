@@ -165,11 +165,16 @@ export async function priceIdForLookup(lookupKey: string): Promise<string> {
 // ---------------------------------------------------------------------------
 
 export async function getSubscription(accountId: string): Promise<Subscription | null> {
-  const { data } = await admin()
+  const { data, error } = await admin()
     .from("subscriptions")
     .select("*")
     .eq("account_id", accountId)
     .maybeSingle();
+  // A swallowed read error is indistinguishable from "no subscription", which
+  // downgrades a PAYING account to expired: the product hard-blocks, "Manage
+  // billing" disappears, and clicking Choose plan mints a SECOND live Stripe
+  // subscription. Fail loudly so callers surface "couldn't load your plan".
+  if (error) throw new Error(`subscription read failed: ${error.message}`);
   return (data as Subscription) ?? null;
 }
 
@@ -225,11 +230,12 @@ export async function getPlanState(accountId: string): Promise<PlanState> {
   }
 
   // No live subscription — the account is on (or past) the signup trial.
-  const { data: owner } = await admin()
+  const { data: owner, error: ownerErr } = await admin()
     .from("account_members")
     .select("created_at")
     .eq("id", accountId)
     .maybeSingle();
+  if (ownerErr) throw new Error(`trial window read failed: ${ownerErr.message}`);
   const started = owner?.created_at ? new Date(owner.created_at).getTime() : Date.now();
   const daysUsed = (Date.now() - started) / 86_400_000;
   if (daysUsed <= TRIAL_DAYS) {

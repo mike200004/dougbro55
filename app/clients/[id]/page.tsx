@@ -20,7 +20,12 @@ export default async function ClientDetailPage({
   const client = await getClient(accountId, id);
   if (!client) notFound();
 
-  const dossier = await getClientDossier(accountId, client.full_name);
+  // Pin to THIS contact — we already have the exact row; fuzzy matching here
+  // would show a same-surname contact's deals instead.
+  const dossier = await getClientDossier(accountId, client.full_name, {
+    clientId: client.id,
+    strict: true,
+  });
   const deals = dossier?.deals ?? [];
 
   return (

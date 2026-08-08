@@ -173,7 +173,11 @@ export async function listClients(
     ? q.order("last_seen_at", { ascending: false, nullsFirst: false }).order("created_at", { ascending: false })
     : q.order("created_at", { ascending: false });
   if (opts?.limit) q = q.limit(opts.limit);
-  const { data } = await q;
+  const { data, error } = await q;
+  // Never turn a read failure into "you have no contacts" — an empty list is
+  // indistinguishable from a wiped account and sends people re-creating data
+  // that already exists. Throw so the page's error boundary shows the truth.
+  if (error) throw new Error(`listClients failed: ${error.message}`);
   return (data as Client[]) ?? [];
 }
 
@@ -489,8 +493,21 @@ export interface Dossier {
   coParties: string[];
 }
 
-/** Everything we remember about a person, found by fuzzy name. */
-export async function getClientDossier(accountId: string, name: string): Promise<Dossier | null> {
+/**
+ * Everything we remember about a person, found by fuzzy name.
+ *
+ * `opts.clientId` pins the result to a KNOWN person instead of letting the
+ * fuzzy match pick one, and `opts.strict` matches deals by exact name only.
+ * The contact detail page must pass both: it already has the exact row, and
+ * without them two contacts sharing a surname (spouses — routine) swap deal
+ * histories, showing one person the other's contracts. Voice recall keeps the
+ * fuzzy behaviour, which is the whole point there.
+ */
+export async function getClientDossier(
+  accountId: string,
+  name: string,
+  opts?: { clientId?: string; strict?: boolean },
+): Promise<Dossier | null> {
   // The docs fetch doesn't depend on which client matches — run both at once.
   // Docs are bounded to a recent window so a power tenant's full history isn't
   // loaded on the voice recall path; deal history shows recent deals.
@@ -503,12 +520,15 @@ export async function getClientDossier(accountId: string, name: string): Promise
   );
   if (!matches.length) return null;
   matches.sort((a, b) => (b.last_seen_at ?? "").localeCompare(a.last_seen_at ?? ""));
-  const client = matches[0];
-  const theirs = docs.filter(
-    (d) =>
-      d.client_id === client.id ||
-      nameMatches(docBuyer(d.fields), client.full_name) ||
-      nameMatches(docSeller(d.fields), client.full_name),
+  const client = (opts?.clientId && matches.find((c) => c.id === opts.clientId)) || matches[0];
+  const sameName = (a: string | null | undefined, b: string | null | undefined) =>
+    !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase();
+  const theirs = docs.filter((d) =>
+    d.client_id === client.id ||
+    (opts?.strict
+      ? sameName(docBuyer(d.fields), client.full_name) || sameName(docSeller(d.fields), client.full_name)
+      : nameMatches(docBuyer(d.fields), client.full_name) ||
+        nameMatches(docSeller(d.fields), client.full_name)),
   );
   const deals: Deal[] = theirs.map((d) => ({
     id: d.id,
@@ -602,7 +622,8 @@ export async function listDocuments(
     .order("updated_at", { ascending: false });
   if (!opts?.includeArchived) q = q.eq("archived", false);
   if (opts?.limit) q = q.limit(opts.limit);
-  const { data } = await q;
+  const { data, error } = await q;
+  if (error) throw new Error(`listDocuments failed: ${error.message}`);
   return (data as DocumentRecord[]) ?? [];
 }
 
@@ -735,11 +756,14 @@ export async function createFormTemplate(
 }
 
 export async function listFormTemplates(accountId: string): Promise<FormTemplate[]> {
-  const { data } = await admin()
+  const { data, error } = await admin()
     .from("form_templates")
     .select("*")
     .eq("account_id", accountId)
     .order("created_at", { ascending: false });
+  // A silent [] here reads as "your uploaded forms are gone" — exactly the
+  // report that started this audit. Fail loudly instead.
+  if (error) throw new Error(`listFormTemplates failed: ${error.message}`);
   return (data as FormTemplate[]) ?? [];
 }
 
@@ -916,7 +940,8 @@ export async function listSignatureRequests(
     .eq("account_id", accountId)
     .order("created_at", { ascending: false });
   if (documentId) q = q.eq("document_id", documentId);
-  const { data } = await q;
+  const { data, error } = await q;
+  if (error) throw new Error(`listSignatureRequests failed: ${error.message}`);
   return (data as SignatureRequest[]) ?? [];
 }
 

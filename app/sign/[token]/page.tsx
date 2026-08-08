@@ -17,6 +17,9 @@ export default function SignPage({ params }: { params: Promise<{ token: string }
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<"signed" | "declined" | "canceled" | null>(null);
+  // The server tells us whether the signed copy actually emailed — don't
+  // promise an inbox delivery that failed.
+  const [emailed, setEmailed] = useState(true);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawing = useRef(false);
   const hasInk = useRef(false);
@@ -80,16 +83,30 @@ export default function SignPage({ params }: { params: Promise<{ token: string }
       });
       // A crashing server can answer with a non-JSON body — don't let that
       // strand the page in its busy state.
-      let data: { status?: "signed" | "declined" | "canceled"; error?: string } | null = null;
+      let data: { status?: "signed" | "declined" | "canceled"; error?: string; emailed?: boolean } | null = null;
       try {
         data = await res.json();
       } catch {
         data = null;
       }
       if (!res.ok) {
+        // A terminal state isn't an error to retry — it means the signing
+        // already landed (e.g. the response was lost on a phone hand-off).
+        // Show the completed screen instead of red text under a live form the
+        // signer will keep re-submitting.
+        if (res.status === 409 || res.status === 410) {
+          const current = await fetch(`/api/sign/${token}`)
+            .then((r) => r.json())
+            .catch(() => null);
+          if (current?.status && current.status !== "pending") {
+            setDone(current.status === "signed" ? "signed" : current.status);
+            return;
+          }
+        }
         setError(data?.error || "Something went wrong on our end. Please try again in a minute.");
         return;
       }
+      if (data?.emailed === false) setEmailed(false);
       if (data?.status) setDone(data.status);
     } catch {
       setError("We couldn't reach the server. Check your connection and try again.");
@@ -108,8 +125,10 @@ export default function SignPage({ params }: { params: Promise<{ token: string }
       <div className="authWrap" style={{ textAlign: "center" }}>
         <h1 className="pageTitle">You’re all set ✓</h1>
         <p className="pageSub" style={{ margin: "12px auto 24px" }}>
-          “{info.document_title}” has been signed. A copy was emailed to you if we have your
-          email on file.
+          “{info.document_title}” has been signed.{" "}
+          {emailed
+            ? "A copy was emailed to you if we have your email on file."
+            : "We couldn’t email your copy — download it below and keep it for your records."}
         </p>
         <a className="btn" href={`/api/sign/${token}?pdf=1`} target="_blank" rel="noreferrer">
           View the signed document

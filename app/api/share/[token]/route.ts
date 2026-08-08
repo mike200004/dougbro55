@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDocumentById } from "@/lib/db";
 import { verifyShareToken } from "@/lib/share";
-import { renderDocument, TemplateRetiredError } from "@/lib/pdf/fill";
+import { renderDocument, SignedCopyUnavailableError, TemplateRetiredError } from "@/lib/pdf/fill";
 import { rateLimit, clientIp } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
@@ -29,6 +29,13 @@ export async function GET(
   try {
     rendered = await renderDocument(doc);
   } catch (err) {
+    if (err instanceof SignedCopyUnavailableError) {
+      // Never re-render an unsigned blank in place of an executed document.
+      return NextResponse.json(
+        { error: "Your signed copy is temporarily unavailable — please try again in a minute." },
+        { status: 503 },
+      );
+    }
     if (err instanceof TemplateRetiredError) {
       return NextResponse.json({ error: "This form has been retired and is no longer available." }, { status: 410 });
     }
