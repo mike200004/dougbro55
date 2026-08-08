@@ -30,10 +30,15 @@ export default function Security({ email, isOwner }: { email: string; isOwner: b
             onClick={async () => {
               setPwBusy(true);
               setPwErr(null);
-              const res = await requestPasswordResetAction(email);
-              setPwBusy(false);
-              if (!res.ok) setPwErr(res.error);
-              else setSent(true);
+              try {
+                const res = await requestPasswordResetAction(email);
+                if (!res.ok) setPwErr(res.error);
+                else setSent(true);
+              } catch {
+                setPwErr("Couldn't send the reset email — check your connection and try again.");
+              } finally {
+                setPwBusy(false);
+              }
             }}
           >
             {pwBusy ? "Sending…" : sent ? "Email sent ✓" : "Change password"}
@@ -63,10 +68,15 @@ export default function Security({ email, isOwner }: { email: string; isOwner: b
               setEmailBusy(true);
               setEmailErr(null);
               setEmailMsg(null);
-              const { error } = await createSupabaseBrowser().auth.updateUser({ email: newEmail.trim() });
-              setEmailBusy(false);
-              if (error) setEmailErr(error.message);
-              else setEmailMsg("Check the new address for a confirmation link — the change applies once confirmed.");
+              try {
+                const { error } = await createSupabaseBrowser().auth.updateUser({ email: newEmail.trim() });
+                if (error) setEmailErr(error.message);
+                else setEmailMsg("Check the new address for a confirmation link — the change applies once confirmed.");
+              } catch {
+                setEmailErr("Couldn't reach the server — check your connection and try again.");
+              } finally {
+                setEmailBusy(false);
+              }
             }}
           >
             {emailBusy ? "Sending…" : "Change email"}
@@ -97,13 +107,22 @@ export default function Security({ email, isOwner }: { email: string; isOwner: b
               onClick={async () => {
                 if (!confirm("Last check — permanently delete this account and all its data?")) return;
                 setBusy(true);
-                const res = await deleteAccountAction(confirmText);
-                if (!res.ok) {
-                  setErr(res.error);
+                setErr(null);
+                try {
+                  const res = await deleteAccountAction(confirmText);
+                  if (!res.ok) {
+                    setErr(res.error);
+                    setBusy(false);
+                    return;
+                  }
+                  window.location.assign("/");
+                } catch {
+                  // Deliberately non-committal: we do not know whether the
+                  // deletion landed, and this is the most destructive action
+                  // in the product.
+                  setErr("We couldn't confirm the deletion — reload this page and check before retrying.");
                   setBusy(false);
-                  return;
                 }
-                window.location.assign("/");
               }}
             >
               {busy ? "Deleting…" : "Delete account"}

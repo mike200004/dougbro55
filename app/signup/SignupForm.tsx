@@ -16,27 +16,34 @@ export default function SignupForm() {
     const email = String(fd.get("email") || "");
     const password = String(fd.get("password") || "");
 
-    const res = await createAccountAction({
-      email,
-      password,
-      agent_name: String(fd.get("agent_name") || ""),
-      phone: String(fd.get("phone") || ""),
-      broker_agency_name: String(fd.get("broker_agency_name") || ""),
-      license_number: String(fd.get("license_number") || ""),
-      street: String(fd.get("street") || ""),
-      city_state_zip: String(fd.get("city_state_zip") || ""),
-    });
+    try {
+      const res = await createAccountAction({
+        email,
+        password,
+        agent_name: String(fd.get("agent_name") || ""),
+        phone: String(fd.get("phone") || ""),
+        broker_agency_name: String(fd.get("broker_agency_name") || ""),
+        license_number: String(fd.get("license_number") || ""),
+        street: String(fd.get("street") || ""),
+        city_state_zip: String(fd.get("city_state_zip") || ""),
+      });
 
-    if (!res.ok) {
-      setError(res.error);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+
+      // Private beta: the account is created pending approval — don't sign in,
+      // show the confirmation instead.
+      setPending(true);
+    } catch {
+      // A dead "Creating…" button is a prospective customer's FIRST
+      // impression, and reloading to escape it would discard all eight
+      // fields they just typed. Keep the form mounted and say what happened.
+      setError("Couldn't create your account — check your connection and try again.");
+    } finally {
       setBusy(false);
-      return;
     }
-
-    // Private beta: the account is created pending approval — don't sign in,
-    // show the confirmation instead.
-    setPending(true);
-    setBusy(false);
   }
 
   if (pending) {

@@ -221,10 +221,20 @@ export default function DocumentEditor({
             className="btn"
             disabled={saving}
             onClick={async () => {
+              // Open the tab SYNCHRONOUSLY, inside the click's user-activation
+              // window. Safari/iOS won't carry activation across the await
+              // below, so opening after the save silently did nothing and the
+              // button looked broken until you clicked it twice.
+              const w = window.open("about:blank", "_blank");
+              if (w) w.opener = null;
               // Don't hand someone a PDF that's missing their latest edits —
               // and don't open a stale one if that save failed.
-              if (dirty && !locked && !(await saveNow())) return;
-              window.open(`/api/documents/${docId}/pdf`, "_blank", "noopener,noreferrer");
+              if (dirty && !locked && !(await saveNow())) {
+                w?.close();
+                return;
+              }
+              if (w) w.location.href = `/api/documents/${docId}/pdf`;
+              else setSaveError("Your browser blocked the new tab — allow pop-ups for pheme.deals, then try again.");
             }}
           >
             Download / preview PDF
@@ -608,9 +618,6 @@ function SendByText({
                 <button type="button" className="btn" onClick={() => copy("link", prepared.url)}>
                   {copied === "link" ? "Copied ✓" : "Copy link"}
                 </button>
-                <button type="button" className="btn" onClick={() => setOpen(false)}>
-                  Close
-                </button>
               </div>
               <p className="muted" style={{ fontSize: 13, marginTop: 8 }}>
                 The text goes out from your phone, so it arrives from your number. On a
@@ -618,6 +625,26 @@ function SendByText({
               </p>
             </>
           )}
+          {/* Always reachable. These used to live inside the `prepared` guard,
+              so a failed preparation trapped the user in a panel with no way
+              out but a page reload. */}
+          <div className="btnRow" style={{ marginTop: 12 }}>
+            {err && !prepared && (
+              <button type="button" className="btn btnPrimary" onClick={openPanel}>
+                Try again
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                setOpen(false);
+                setErr(null);
+              }}
+            >
+              Close
+            </button>
+          </div>
         </div>
       )}
     </div>

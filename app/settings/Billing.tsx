@@ -59,31 +59,49 @@ export default function Billing(props: Props) {
     setBusy(plan);
     setErr(null);
     setSwitched(null);
-    const res = await startCheckoutAction(plan, billingInterval);
-    if (res.ok && res.url) {
-      window.location.assign(res.url); // new subscription → Stripe Checkout
-      return;
+    // Leaving the page: don't re-enable the button mid-navigation.
+    let navigatingAway = false;
+    try {
+      const res = await startCheckoutAction(plan, billingInterval);
+      if (res.ok && res.url) {
+        navigatingAway = true;
+        window.location.assign(res.url); // new subscription → Stripe Checkout
+        return;
+      }
+      if (res.ok) {
+        // Existing subscription switched in place — no redirect, just confirm
+        // and refresh so the webhook-synced plan shows up.
+        navigatingAway = true;
+        setSwitched(res.message ?? "Plan updated.");
+        setBusy(null);
+        setTimeout(() => window.location.reload(), 3500);
+        return;
+      }
+      setErr(res.error);
+    } catch {
+      // A stuck "Opening…" reads as "billing is broken" to a paying customer.
+      setErr("We couldn't reach billing just now — check your connection and try again.");
+    } finally {
+      if (!navigatingAway) setBusy(null);
     }
-    if (res.ok) {
-      // Existing subscription switched in place — no redirect, just confirm
-      // and refresh so the webhook-synced plan shows up.
-      setSwitched(res.message ?? "Plan updated.");
-      setBusy(null);
-      setTimeout(() => window.location.reload(), 3500);
-      return;
-    }
-    setErr(res.error);
-    setBusy(null);
   }
 
   async function portal() {
     setBusy("portal");
     setErr(null);
-    const res = await openBillingPortalAction();
-    if (res.ok && res.url) window.location.assign(res.url);
-    else {
+    let navigatingAway = false;
+    try {
+      const res = await openBillingPortalAction();
+      if (res.ok && res.url) {
+        navigatingAway = true;
+        window.location.assign(res.url);
+        return;
+      }
       setErr(res.ok ? "Could not open billing." : res.error);
-      setBusy(null);
+    } catch {
+      setErr("We couldn't open the billing portal just now — check your connection and try again.");
+    } finally {
+      if (!navigatingAway) setBusy(null);
     }
   }
 
