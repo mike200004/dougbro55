@@ -42,6 +42,19 @@ export class TemplateRetiredError extends Error {
 }
 
 /**
+ * The executed copy exists in the database but its PDF could not be fetched
+ * from storage. Callers must surface this as a temporary failure — NEVER fall
+ * back to re-rendering, which would silently serve an unsigned blank in place
+ * of a signed legal document.
+ */
+export class SignedCopyUnavailableError extends Error {
+  constructor(path: string) {
+    super(`The signed copy is temporarily unavailable (${path}).`);
+    this.name = "SignedCopyUnavailableError";
+  }
+}
+
+/**
  * Fill a flat template PDF by overlaying typed values at mapped coordinates.
  * Agent-profile-sourced fields are pulled from `profile`; everything else from
  * `fields`. Returns the rendered PDF bytes.
@@ -229,13 +242,16 @@ export async function renderDocument(
   if (!opts?.ignoreSigned) {
     const signed = await latestSignedRequest(doc.id);
     if (signed?.signed_path) {
-      const { data } = await admin().storage.from(BUCKET).download(signed.signed_path);
-      if (data) {
-        return {
-          bytes: new Uint8Array(await data.arrayBuffer()),
-          filename: safe(`${doc.title || "document"}-signed`),
-        };
-      }
+      const { data, error } = await admin().storage.from(BUCKET).download(signed.signed_path);
+      // Falling through to a fresh render here would hand someone a BLANK,
+      // UNSIGNED form in place of the executed document of record — with no
+      // signature, no certificate page, and HTTP 200. For a legal document
+      // that is worse than an error, so refuse instead.
+      if (error || !data) throw new SignedCopyUnavailableError(signed.signed_path);
+      return {
+        bytes: new Uint8Array(await data.arrayBuffer()),
+        filename: safe(`${doc.title || "document"}-signed`),
+      };
     }
   }
 
